@@ -1,0 +1,10 @@
+node_modules/
+data/
+.claude/
+.env
+.env.*
+!.env.example
+coverage/
+test/.tmp-data/
+*.log
+.DS_Store

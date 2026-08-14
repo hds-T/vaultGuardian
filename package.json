@@ -1,0 +1,24 @@
+{
+  "name": "vault-guardian",
+  "version": "0.1.0",
+  "description": "Local Gandalf: prompt-injection game on QVAC/Bare",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "bare src/server.js",
+    "dev": "QVAC_MOCK=1 bare src/server.js",
+    "freeroam": "FREE_ROAM=1 bare src/server.js",
+    "test": "bare test/security.test.js"
+  },
+  "keywords": ["qvac", "bare", "prompt-injection", "llm", "security", "game"],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@qvac/sdk": "^0.14.1",
+    "bare-crypto": "^1.15.3",
+    "bare-fs": "^4.7.3",
+    "bare-http1": "^4.5.7",
+    "bare-path": "^3.0.1",
+    "bare-process": "^4.5.0"
+  }
+}

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vault Guardian</title>
+<link rel="stylesheet" href="/style.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <span class="sigil">🛡️</span>
+      <div>
+        <h1>Vault Guardian</h1>
+        <p>Trick the guardian AI into leaking its password — then submit your guess.</p>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span id="modelPill" class="pill">local model</span>
+      <a class="pill" href="/admin">admin →</a>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="panel">
+      <div class="hd">Levels</div>
+      <div class="bd">
+        <div id="levels" class="levels"></div>
+      </div>
+    </aside>
+
+    <main class="panel">
+      <div class="hd" id="levelTitle">Select a level</div>
+      <div class="chat">
+        <div id="msgs" class="msgs"></div>
+        <div class="composer">
+          <input id="chatInput" placeholder="Say something to the guardian…" autocomplete="off" disabled />
+          <button id="sendBtn" class="btn" disabled>Send</button>
+          <button id="resetBtn" class="btn ghost" title="Clear the conversation" disabled>Reset</button>
+        </div>
+        <div class="guessbar">
+          <span class="lbl">🔑 Submit password:</span>
+          <input id="guessInput" placeholder="your guess" autocomplete="off" disabled />
+          <button id="guessBtn" class="btn gold" disabled>Submit</button>
+        </div>
+      </div>
+    </main>
+  </div>
+  <p id="hint" class="hint"></p>
+  <p class="footer-note">Runs fully offline via QVAC on the Bare runtime. The password never leaves the server.</p>
+</div>
+<div id="toast" class="toast"></div>
+<script src="/app.js"></script>
+</body>
+</html>
