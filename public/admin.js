@@ -11,6 +11,10 @@ function toast (msg, kind = 'ok') {
 }
 function escapeHtml (s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])) }
 
+function formatReply (s) {
+  return escapeHtml(s).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+}
+
 async function api (path, opts = {}) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
@@ -312,13 +316,13 @@ async function pvSend () {
       body: JSON.stringify({ levelId: selected, message: msg })
     })
     await readSSE(res, (ev, data) => {
-      if (ev === 'token') { got += data.token; bot.innerHTML = escapeHtml(got) + '<span class="cursor">▍</span>' }
-      else if (ev === 'message') { got = data.text; bot.textContent = got }
+      if (ev === 'token') { got += data.token; bot.innerHTML = formatReply(got) + '<span class="cursor">▍</span>' }
+      else if (ev === 'message') { got = data.text; bot.innerHTML = formatReply(got) }
       else if (ev === 'done') { blockedAt = data.blockedAt }
-      else if (ev === 'error') { got = '⚠️ ' + data.error; bot.textContent = got }
+      else if (ev === 'error') { got = '⚠️ ' + data.error; bot.innerHTML = formatReply(got) }
     })
   } catch { got = '⚠️ error' }
-  bot.innerHTML = escapeHtml(got || '…')
+  bot.innerHTML = formatReply(got || '…')
   if (blockedAt) bot.classList.add('blocked')
 }
 $('pvSend').onclick = pvSend

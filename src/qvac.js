@@ -9,6 +9,12 @@ if (!globalThis.process) globalThis.process = bareProcess
 
 const MOCK = bareProcess.env.QVAC_MOCK === '1'
 const THINKING = bareProcess.env.QVAC_THINKING === '1'
+// Reasoning-channel budget: 0 hard-disables <think> at the sampler, -1 leaves
+// it on. Enforced by the sampler, unlike a /no_think prompt suffix which a
+// small model is free to ignore.
+const REASONING_BUDGET = THINKING ? -1 : 0
+// Quantized 4B models drift into self-repetition on longer generations.
+const REPEAT_PENALTY = 1.1
 
 let sdk = null
 let api = null
@@ -45,10 +51,19 @@ export async function initModel (config) {
   const modelSrc = sdk[name]
   if (!modelSrc) throw new Error(`Unknown model constant "${name}" — not exported by @qvac/sdk`)
 
-  console.log(`[qvac] loading ${name} (ctx_size=${config.ctxSize}) ...`)
+  console.log(`[qvac] loading ${name} (ctx_size=${config.ctxSize}, predict=${config.predict}) ...`)
   modelId = await api.loadModel({
     modelSrc,
-    modelConfig: { ctx_size: config.ctxSize || 2048 },
+    // Sampling defaults for every call; per-call generationParams override them.
+    // `predict` is the important one — left unset the model generates until EOS
+    // or the context fills, which a 4B-Q4 happily does.
+    modelConfig: {
+      ctx_size: config.ctxSize || 2048,
+      predict: config.predict,
+      temp: config.temp,
+      repeat_penalty: REPEAT_PENALTY,
+      reasoning_budget: REASONING_BUDGET
+    },
     onProgress: (p) => {
       if (p && typeof p.percentage === 'number') {
         bareProcess.stderr.write(`\r[qvac] downloading model ${p.percentage.toFixed(0)}%`)
@@ -71,24 +86,38 @@ export async function shutdownModel () {
   }
 }
 
+// Cuts a reply back to its last complete sentence. Used when the predict cap
+// stopped generation mid-thought, so the player sees a clean ending rather
+// than a dangling half-word.
+const SENTENCE_END_RE = /[.!?…]["')\]]*(?=\s|$)/g
+
+function trimToSentence (text) {
+  let end = 0
+  for (const match of text.matchAll(SENTENCE_END_RE)) end = match.index + match[0].length
+  return end > 0 ? text.slice(0, end) : text
+}
+
 // Runs one guarded chat turn. `history` is [{ role, content }, ...] including
 // the system message. Returns the full reply text; if `onToken` is given,
 // tokens are also forwarded as they arrive (caller decides whether live
-// streaming is safe for the level).
-// Qwen3 hybrid models reason inside <think> blocks by default; the /no_think
-// soft switch keeps turns fast. captureThinking diverts any reasoning that is
-// still emitted into thinkingDelta events, so it never reaches the player or
-// the guard verdict parsing. Set QVAC_THINKING=1 to let the model reason.
-function applyThinkingSwitch (history) {
-  if (THINKING || !loadedModelName?.startsWith('QWEN3')) return history
-  return history.map(m => m.role === 'system' ? { ...m, content: m.content + '\n/no_think' } : m)
-}
-
-export async function complete (history, onToken) {
+// streaming is safe for the level). `generationParams` and `responseFormat`
+// override the load-time sampling defaults for this call only.
+// Qwen3 hybrid models reason inside <think> blocks by default; REASONING_BUDGET
+// turns that channel off. captureThinking diverts any reasoning that is still
+// emitted into thinkingDelta events, so it never reaches the player or the
+// guard verdict parsing. Set QVAC_THINKING=1 to let the model reason.
+export async function complete (history, { onToken, generationParams, responseFormat } = {}) {
   if (modelId === null) throw new Error('model not loaded')
   return enqueue(async () => {
     if (MOCK) return mockComplete(history, onToken)
-    const result = api.completion({ modelId, history: applyThinkingSwitch(history), stream: true, captureThinking: true })
+    const result = api.completion({
+      modelId,
+      history,
+      stream: true,
+      captureThinking: true,
+      ...(generationParams && { generationParams }),
+      ...(responseFormat && { responseFormat })
+    })
     // Stripped <think> blocks leave leading newlines; swallow them so the
     // player never sees a reply that starts with blank lines.
     let text = ''
@@ -106,7 +135,10 @@ export async function complete (history, onToken) {
       }
     }
     const final = await result.final
-    return (final.contentText || text).trim()
+    const reply = (final.contentText || text).trim()
+    // Streamed replies are already on the player's screen, so only buffered
+    // ones can still be trimmed without desyncing from what was displayed.
+    return final.stopReason === 'length' && !onToken ? trimToSentence(reply) : reply
   })
 }
 

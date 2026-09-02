@@ -1,6 +1,6 @@
 # 🛡️ Vault Guardian
 
-A local-first, offline **prompt-injection game** in the style of [Lakera's Gandalf](https://gandalf.lakera.ai/baseline). A defender AI holds a secret password; you chat with it and try to trick it into leaking the password, then submit your guess to a server-side validator. Seven levels (L1–L7) of escalating defenses, all editable from an admin console.
+A local-first, offline **prompt-injection game** in the style of [Lakera's Gandalf](https://gandalf.lakera.ai/baseline). A defender AI holds a secret password; you chat with it and try to trick it into leaking the password, then submit your guess to a server-side validator. Five levels (L1–L5) of escalating defenses, all editable from an admin console.
 
 All AI inference runs **locally, in-process, fully offline** through [QVAC](https://qvac.tether.io) (`@qvac/sdk`) on the [Bare](https://bare.pears.com) runtime. No cloud, no external API calls, no accounts, no telemetry. The default model fits in about 4 GB RAM.
 
@@ -85,8 +85,6 @@ password under the level's `submitValidation.mode` (`exact` | `case_insensitive`
 | L3 — The Sentry | Output "contains password" filter — the classic |
 | L4 — The Gatekeeper | Input keyword guard + output filter |
 | L5 — The Silent Order | Topic refusal + fuzzy output filter |
-| L6 — The Inquisitor | All of the above + guard-model self-check |
-| L7 — The Vault Itself | Everything on, harder rotated password (boss) |
 
 Every field of every level is editable in the admin console; **reset-to-default**
 restores the shipped presets.
@@ -118,7 +116,7 @@ src/
   server.js    HTTP router, SSE streaming, static serving, API
   qvac.js      QVAC model load/complete/unload (Bare plugin wiring) + dev mock
   guards.js    input / output / fuzzy / guard-model pipeline + guess validation
-  levels.js    L1–L7 presets and the persisted, editable store
+  levels.js    L1–L5 presets and the persisted, editable store
   auth.js      admin passphrase (PBKDF2) + signed session tokens
   sessions.js  per-browser conversations, solve progress, guess rate limiting
   store.js     atomic local JSON persistence

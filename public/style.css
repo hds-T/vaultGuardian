@@ -59,6 +59,7 @@ header.top {
 .msg.bot { align-self: flex-start; background: #120f24; border: 1px solid var(--border); }
 .msg.system { align-self: center; color: var(--muted); font-size: 12.5px; font-style: italic; background: none; }
 .msg.blocked { border-color: #5a2740; background: #2a1420; }
+.msg strong { font-weight: 700; color: #fff; }
 .composer { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
 .composer input { flex: 1; }
 

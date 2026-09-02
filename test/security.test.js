@@ -66,8 +66,8 @@ test('input and output guards block configured leaks', () => {
 })
 
 test('guess validation follows the configured mode', () => {
-  const level = defaultLevels()[6]
-  assert(validateGuess(level, 'vermilion archive 9'), 'normalized guess should match')
+  const level = defaultLevels()[4]
+  assert(validateGuess(level, 'lanternfish'), 'case-insensitive guess should match')
   assert(!validateGuess(level, 'wrong'), 'wrong guess should not match')
 })
 

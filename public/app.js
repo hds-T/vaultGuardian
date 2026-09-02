@@ -71,6 +71,12 @@ function addSystem (text) { return addMsg('system', text) }
 
 function escapeHtml (s) { return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])) }
 
+// Escape first, then turn **bold** into real markup so the guardian's
+// markdown emphasis actually renders.
+function formatReply (s) {
+  return escapeHtml(s).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+}
+
 async function send () {
   const input = $('chatInput')
   const msg = input.value.trim()
@@ -93,16 +99,16 @@ async function send () {
       body: JSON.stringify({ levelId: current, message: msg })
     })
     await readSSE(res, (event, data) => {
-      if (event === 'token') { got += data.token; bot.innerHTML = escapeHtml(got) + '<span class="cursor">▍</span>' }
-      else if (event === 'message') { got = data.text; bot.textContent = got }
+      if (event === 'token') { got += data.token; bot.innerHTML = formatReply(got) + '<span class="cursor">▍</span>' }
+      else if (event === 'message') { got = data.text; bot.innerHTML = formatReply(got) }
       else if (event === 'done') { blockedAt = data.blockedAt }
-      else if (event === 'error') { got = '⚠️ ' + (data.error || 'error'); bot.textContent = got }
+      else if (event === 'error') { got = '⚠️ ' + (data.error || 'error'); bot.innerHTML = formatReply(got) }
     })
   } catch (err) {
     bot.textContent = '⚠️ connection error'
   }
   bot.classList.remove('pending')
-  bot.innerHTML = escapeHtml(got || '…')
+  bot.innerHTML = formatReply(got || '…')
   if (blockedAt === 'output' || blockedAt === 'guardModel' || blockedAt === 'input') bot.classList.add('blocked')
 
   $('sendBtn').disabled = false
