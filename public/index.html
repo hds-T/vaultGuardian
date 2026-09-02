@@ -3,55 +3,84 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Vault Guardian</title>
+<title>VaultGuardian</title>
 <link rel="stylesheet" href="/style.css" />
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M18.98 12.34h-1.01v-1.95a.39.39 0 0 0-.11-.27l-1.85-1.99a.36.36 0 0 0-.29-.13H4.26c-.11 0-.22.05-.29.13L2.11 10.12a.39.39 0 0 0-.11.27v2.84c0 .1.04.2.11.27l1.85 1.99c.08.08.18.13.3.13h17.45c.11 0 .22-.05.29-.13 0 0-2.8-3.15-3.02-3.15Zm-4.29-.4c0 .22-.18.4-.4.4H5.69a.4.4 0 0 1-.4-.4v-.25c0-.22.18-.4.4-.4h8.59c.11 0 .21.04.28.12l.01.01c.08.08.12.18.12.28v.24Z' fill='%2316E3C1'/></svg>" />
 </head>
 <body>
-<div class="wrap">
-  <header class="top">
-    <div class="brand">
-      <span class="sigil">🛡️</span>
-      <div>
-        <h1>Vault Guardian</h1>
-        <p>Trick the guardian AI into leaking its password — then submit your guess.</p>
-      </div>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center">
-      <span id="modelPill" class="pill">local model</span>
+
+<!-- ===================== INTRO ===================== -->
+<section id="intro">
+  <div class="intro-inner">
+    <div class="hero"><div class="mark"></div></div>
+    <img class="intro-logo" src="/assets/logo.svg" alt="QVAC" />
+    <h1 class="intro-title">Vault<em>Guardian</em></h1>
+    <p class="intro-copy">
+      You have been told small models are not smart enough. If that is so, it should be easy to
+      break one. All you have to do is <strong>convince the Guardian to give you the password of
+      each level</strong>, each level you pass will get you a prize. Find all words and the final
+      Vault will open — the prize inside is yours.
+    </p>
+    <button id="startBtn" class="btn big" disabled>Start</button>
+    <div class="intro-meta">
+      <span id="introPill" class="pill">local model</span>
       <a class="pill" href="/admin">admin →</a>
     </div>
-  </header>
-
-  <div class="layout">
-    <aside class="panel">
-      <div class="hd">Levels</div>
-      <div class="bd">
-        <div id="levels" class="levels"></div>
-      </div>
-    </aside>
-
-    <main class="panel">
-      <div class="hd" id="levelTitle">Select a level</div>
-      <div class="chat">
-        <div id="msgs" class="msgs"></div>
-        <div class="composer">
-          <input id="chatInput" placeholder="Say something to the guardian…" autocomplete="off" disabled />
-          <button id="sendBtn" class="btn" disabled>Send</button>
-          <button id="resetBtn" class="btn ghost" title="Clear the conversation" disabled>Reset</button>
-        </div>
-        <div class="guessbar">
-          <span class="lbl">🔑 Submit password:</span>
-          <input id="guessInput" placeholder="your guess" autocomplete="off" disabled />
-          <button id="guessBtn" class="btn gold" disabled>Submit</button>
-        </div>
-      </div>
-    </main>
+    <p class="footer-note">Runs fully offline via QVAC on the Bare runtime. The password never leaves the server.</p>
   </div>
-  <p id="hint" class="hint"></p>
-  <p class="footer-note">Runs fully offline via QVAC on the Bare runtime. The password never leaves the server.</p>
-</div>
+</section>
+
+<!-- ===================== GAME ===================== -->
+<section id="game" class="hidden">
+  <div class="wrap" style="padding-bottom:0">
+    <header class="top">
+      <div class="brand">
+        <img class="intro-logo" src="/assets/logo.svg" alt="QVAC" style="height:16px;margin:0" />
+        <div>
+          <h1>VaultGuardian</h1>
+          <p>Convince the Guardian to hand over the word.</p>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span id="modelPill" class="pill">local model</span>
+        <a class="pill" href="/admin">admin →</a>
+      </div>
+    </header>
+  </div>
+
+  <div class="stage">
+    <div class="levelbar">
+      <span class="count" id="levelCount">Level 1 / 5</span>
+      <span class="lname" id="levelName">—</span>
+      <span class="spacer"></span>
+      <div class="pips" id="pips"></div>
+    </div>
+
+    <div class="board" id="board">
+      <div id="msgs" class="msgs"></div>
+    </div>
+
+    <div class="composer">
+      <input id="chatInput" placeholder="Say something to the guardian…" autocomplete="off" disabled />
+      <button id="sendBtn" class="btn" disabled>Send</button>
+      <button id="resetBtn" class="btn ghost" title="Clear the conversation" disabled>Reset</button>
+    </div>
+
+    <div class="guessbar">
+      <span class="lbl">Submit password</span>
+      <input id="guessInput" placeholder="your guess" autocomplete="off" disabled />
+      <button id="guessBtn" class="btn gold" disabled>Submit</button>
+    </div>
+
+    <div class="vault">
+      <span class="lbl">Vault words</span>
+      <div id="words" class="pips" style="gap:8px"></div>
+    </div>
+  </div>
+</section>
+
 <div id="toast" class="toast"></div>
+<div id="resetToast" class="toast corner"></div>
 <script src="/app.js"></script>
 </body>
 </html>

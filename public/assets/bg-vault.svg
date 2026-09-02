@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Placeholder board background. Swap this file, or repoint the board-image
+     custom property in style.css, for the final artwork. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" fill="none">
+  <defs>
+    <radialGradient id="haze" cx="50%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#16E3C1" stop-opacity="0.20"/>
+      <stop offset="45%" stop-color="#16E3C1" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#16E3C1" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#161718"/>
+      <stop offset="100%" stop-color="#0e0f0f"/>
+    </linearGradient>
+    <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M80 0H0V80" stroke="#2f3132" stroke-width="1" fill="none"/>
+    </pattern>
+  </defs>
+
+  <rect width="1600" height="1000" fill="url(#floor)"/>
+  <rect width="1600" height="1000" fill="url(#grid)" opacity="0.35"/>
+  <rect width="1600" height="1000" fill="url(#haze)"/>
+
+  <!-- vault door -->
+  <g transform="translate(800 470)" stroke="#16E3C1" fill="none" stroke-opacity="0.95">
+    <circle r="330" stroke-width="5"/>
+    <circle r="292" stroke-width="2.5" stroke-opacity="0.55"/>
+    <circle r="196" stroke-width="4" stroke-opacity="0.75"/>
+    <circle r="150" stroke-width="2.5" stroke-opacity="0.5"/>
+    <circle r="58" stroke-width="5" stroke-opacity="0.95"/>
+    <g stroke-width="4" stroke-opacity="0.8">
+      <path d="M0 -292V-196M0 196V292M-292 0H-196M196 0H292"/>
+      <path d="M-207 -207l68 68M139 139l68 68M207 -207l-68 68M-139 139l-68 68"/>
+    </g>
+    <g stroke-width="16" stroke-opacity="0.65" stroke-linecap="round">
+      <path d="M0 -150V-58M0 58V150M-150 0H-58M58 0H150"/>
+    </g>
+    <g stroke-width="2.5" stroke-opacity="0.45">
+      <circle r="330" stroke-dasharray="5 26"/>
+    </g>
+  </g>
+
+
+  <!-- bolt studs around the door -->
+  <g fill="#16E3C1" fill-opacity="0.7">
+    <circle cx="800" cy="170" r="10"/>
+    <circle cx="1010" cy="257" r="10"/>
+    <circle cx="1097" cy="470" r="10"/>
+    <circle cx="1010" cy="683" r="10"/>
+    <circle cx="800" cy="770" r="10"/>
+    <circle cx="590" cy="683" r="10"/>
+    <circle cx="503" cy="470" r="10"/>
+    <circle cx="590" cy="257" r="10"/>
+  </g>
+</svg>

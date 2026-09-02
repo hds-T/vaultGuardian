@@ -12,7 +12,9 @@ function toast (msg, kind = 'ok') {
 function escapeHtml (s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])) }
 
 function formatReply (s) {
-  return escapeHtml(s).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  return escapeHtml(String(s).replaceAll('—', ','))
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^\s*](?:[^*]*[^\s*])?)\*/g, '<strong>$1</strong>')
 }
 
 async function api (path, opts = {}) {

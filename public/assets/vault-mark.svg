@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240" fill="none">
+  <g transform="translate(120 120)" stroke="#16E3C1" fill="none" stroke-linecap="round">
+    <circle r="104" stroke-width="3"/>
+    <circle r="92" stroke-width="1.5" stroke-opacity="0.4" stroke-dasharray="3 14"/>
+    <circle r="62" stroke-width="2.5" stroke-opacity="0.8"/>
+    <circle r="48" stroke-width="1.5" stroke-opacity="0.4"/>
+    <circle r="19" stroke-width="3"/>
+    <g stroke-width="2.5" stroke-opacity="0.85">
+      <path d="M0 -92V-62M0 62V92M-92 0H-62M62 0H92"/>
+      <path d="M-65 -65l21 21M44 44l21 21M65 -65l-21 21M-44 44l-21 21"/>
+    </g>
+    <g stroke-width="7" stroke-opacity="0.7">
+      <path d="M0 -48V-19M0 19V48M-48 0H-19M19 0H48"/>
+    </g>
+  </g>
+  <g fill="#16E3C1" fill-opacity="0.75">
+    <circle cx="120" cy="4" r="4"/>
+    <circle cx="202" cy="38" r="4"/>
+    <circle cx="236" cy="120" r="4"/>
+    <circle cx="202" cy="202" r="4"/>
+    <circle cx="120" cy="236" r="4"/>
+    <circle cx="38" cy="202" r="4"/>
+    <circle cx="4" cy="120" r="4"/>
+    <circle cx="38" cy="38" r="4"/>
+  </g>
+</svg>
