@@ -25,9 +25,13 @@ bareProcess.env.ADMIN_PASSPHRASE = 'test-only-passphrase'
 const { initAuth, verifyPassphrase, verifyToken } = await import('../src/auth.js')
 const { defaultLevels } = await import('../src/levels.js')
 const { runInputGuard, replyLeaksPassword, validateGuess } = await import('../src/guards.js')
-const { isValidSessionId, newSessionId } = await import('../src/sessions.js')
+const {
+  isValidSessionId, newSessionId, initSessions, resetConversation,
+  messagesUsed, countMessage, refundMessage, markSolved, solvedLevels, resetRun
+} = await import('../src/sessions.js')
 
 initAuth()
+initSessions()
 
 test('auth data is stored with owner-only permissions', () => {
   const authFile = path.join(TEST_DATA_DIR, 'auth.json')
@@ -56,6 +60,34 @@ test('only generated UUIDs are accepted as session IDs', () => {
   assert(isValidSessionId(newSessionId()), 'generated session ID was rejected')
   for (const sid of ['', '__proto__', 'constructor', '../auth.json', 'not-a-uuid']) {
     assert(!isValidSessionId(sid), `accepted forged session ID: ${sid}`)
+  }
+})
+
+// Unlimited chat resets are the point: they must cost nothing but must not
+// refund the messages already spent on the level.
+test('the message budget survives a conversation reset', () => {
+  const sid = newSessionId()
+  countMessage(sid, 'l1')
+  countMessage(sid, 'l1')
+  resetConversation(sid, 'l1')
+  assert(messagesUsed(sid, 'l1') === 2, 'a conversation reset must not refund messages')
+  assert(messagesUsed(sid, 'l2') === 0, 'budgets must be tracked per level')
+  refundMessage(sid, 'l1')
+  assert(messagesUsed(sid, 'l1') === 1, 'a failed turn should hand the try back')
+})
+
+test('ending a run clears its budget and its solves', () => {
+  const sid = newSessionId()
+  countMessage(sid, 'l1')
+  markSolved(sid, 'l1')
+  resetRun(sid)
+  assert(messagesUsed(sid, 'l1') === 0, 'a new run starts with a full budget')
+  assert(solvedLevels(sid).size === 0, 'a new run starts with no solves')
+})
+
+test('every level ships a positive message budget', () => {
+  for (const level of defaultLevels()) {
+    assert(Number(level.maxMessages) > 0, `${level.id} has no message budget`)
   }
 })
 

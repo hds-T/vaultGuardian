@@ -130,7 +130,7 @@ function renderEditForm (l) {
     </div>
     <div class="row">
       <div class="field"><label>Password (server-only)</label><input type="text" id="e_password" value="${escapeHtml(l.password)}"></div>
-      <div class="field"><label>Hint (shown to player)</label><input type="text" id="e_hint" value="${escapeHtml(l.hint || '')}"></div>
+      <div class="field"><label>Hint (shown to the player on the first 3 levels only)</label><input type="text" id="e_hint" value="${escapeHtml(l.hint || '')}"></div>
     </div>
     <div class="field"><label>Prize (shown on the win popup — include the article, e.g. "a QVAC cap")</label><input type="text" id="e_prize" value="${escapeHtml(l.prize || '')}"></div>
     <div class="field"><label>System prompt</label><textarea id="e_system">${escapeHtml(l.systemPrompt)}</textarea></div>
@@ -165,6 +165,7 @@ function renderEditForm (l) {
           </select>
         </div>
         <div class="field"><label>Max guesses / minute</label><input type="number" id="e_sv_rate" value="${l.submitValidation.maxGuessesPerMinute}"></div>
+        <div class="field"><label>Max messages (tries) per run</label><input type="number" id="e_max_msgs" min="1" value="${l.maxMessages || 10}"></div>
       </div>
     </fieldset>
 
@@ -192,6 +193,7 @@ function formToLevel (l) {
     password: $('e_password').value,
     hint: $('e_hint').value,
     prize: $('e_prize').value,
+    maxMessages: Number($('e_max_msgs').value),
     systemPrompt: $('e_system').value,
     inputGuard: { enabled: $('e_ig_en').checked, blocklist: bl, onBlock: $('e_ig_msg').value },
     outputGuard: { enabled: $('e_og_en').checked, blockIfContainsPassword: $('e_og_contains').checked, fuzzy: $('e_og_fuzzy').checked, onBlock: $('e_og_msg').value },
@@ -344,6 +346,7 @@ async function loadLogs () {
     const time = new Date(e.ts).toLocaleTimeString()
     let desc
     if (e.kind === 'guess') desc = `guess on ${e.levelId} — ${e.correct ? '✅ correct' : '❌ wrong'}`
+    else if (e.kind === 'gameover') desc = `game over on ${e.levelId} — 💀 run ended with ${e.cleared} cleared`
     else desc = `chat on ${e.levelId}${e.admin ? ' (admin)' : ''} — ${e.blockedAt ? '🛑 blocked at ' + e.blockedAt : '✓ passed'}`
     return `<div class="stage" style="padding:8px 12px"><span class="tag">${time}</span> ${escapeHtml(desc)}</div>`
   }).join('')

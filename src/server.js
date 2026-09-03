@@ -9,12 +9,14 @@ import fs from 'bare-fs'
 import path from 'bare-path'
 
 import { initModel, shutdownModel, modelInfo } from './qvac.js'
-import { loadLevels, saveLevels, resetLevel, defaultLevels } from './levels.js'
+import { initStt, shutdownStt, sttInfo, startSession, writeChunk, stopSession, destroySession } from './stt.js'
+import { loadLevels, saveLevels, resetLevel, defaultLevels, DEFAULT_MAX_MESSAGES } from './levels.js'
 import { runTurn, validateGuess, runInputGuard, replyLeaksPassword, runGuardModelCheck } from './guards.js'
 import { initAuth, needsSetup, setupPassphrase, verifyPassphrase, verifyToken } from './auth.js'
 import {
   initSessions, newSessionId, conversation, pushTurn, resetConversation,
-  solvedLevels, markSolved, checkGuessLimit, isValidSessionId
+  solvedLevels, markSolved, checkGuessLimit, isValidSessionId,
+  messagesUsed, countMessage, refundMessage, resetRun
 } from './sessions.js'
 
 const ROOT = path.join(new URL('..', import.meta.url).pathname)
@@ -126,28 +128,54 @@ function requireAdmin (req, res) {
   return false
 }
 
+function messageBudget (level) {
+  return Number(level.maxMessages) || DEFAULT_MAX_MESSAGES
+}
+
 // public view of a level (no password, no guard internals beyond flags)
-function publicLevel (level, solved, unlocked) {
+function publicLevel (level, { solved, unlocked, hinted, messagesLeft }) {
   return {
     id: level.id, name: level.name, order: level.order,
-    hint: level.hint || null, solved, unlocked,
+    hint: hinted ? (level.hint || null) : null, solved, unlocked,
     prize: level.prize || '',
+    maxMessages: messageBudget(level),
+    messagesLeft,
     guessesPerMinute: level.submitValidation?.maxGuessesPerMinute || 10
   }
 }
 
+// The opening levels teach the game, so they hand out their hint. Later ones
+// withhold it — and withhold it here, not in the browser, so it cannot be
+// read out of /api/state.
+const HINTED_LEVELS = 3
+
 function levelsForPlayer (sid) {
   const solved = solvedLevels(sid)
   const ordered = [...levels].sort((a, b) => a.order - b.order)
-  return ordered.map((lvl, i) => {
-    const unlocked = CONFIG.freeRoam || i === 0 || solved.has(ordered[i - 1].id)
-    return publicLevel(lvl, solved.has(lvl.id), unlocked)
-  })
+  return ordered.map((lvl, i) => publicLevel(lvl, {
+    solved: solved.has(lvl.id),
+    unlocked: CONFIG.freeRoam || i === 0 || solved.has(ordered[i - 1].id),
+    hinted: i < HINTED_LEVELS,
+    messagesLeft: Math.max(0, messageBudget(lvl) - messagesUsed(sid, lvl.id))
+  }))
 }
 
 function isUnlocked (sid, levelId) {
   const view = levelsForPlayer(sid).find(l => l.id === levelId)
   return view ? view.unlocked : false
+}
+
+// How far this run got, for the game-over popup. Must be read before the run
+// is reset, while the solves are still on record.
+function runSummary (sid, levelId) {
+  const view = levelsForPlayer(sid)
+  const idx = view.findIndex(l => l.id === levelId)
+  return {
+    door: idx + 1,
+    name: view[idx]?.name || '',
+    cleared: view.filter(l => l.solved).length,
+    total: view.length
+  }
 }
 
 const MIME = {
@@ -190,7 +218,7 @@ async function handle (req, res) {
     // ---- public API ----
     if (p === '/api/state' && req.method === 'GET') {
       const sid = ensureSid(req, res)
-      return json(res, 200, { levels: levelsForPlayer(sid), freeRoam: CONFIG.freeRoam, model: modelInfo() })
+      return json(res, 200, { levels: levelsForPlayer(sid), freeRoam: CONFIG.freeRoam, model: modelInfo(), stt: sttInfo() })
     }
 
     if (p === '/api/chat' && req.method === 'POST') {
@@ -210,6 +238,14 @@ async function handle (req, res) {
       const correct = validateGuess(level, String(guess ?? ''))
       if (correct) markSolved(sid, levelId)
       addLog({ kind: 'guess', levelId, correct })
+      // Out of messages and still wrong: the run is over. Wipe it here so a
+      // player who closes the popup cannot resume a lost run by reloading.
+      if (!correct && messagesUsed(sid, levelId) >= messageBudget(level)) {
+        const reached = runSummary(sid, levelId)
+        resetRun(sid)
+        addLog({ kind: 'gameover', levelId, cleared: reached.cleared })
+        return json(res, 200, { correct: false, gameOver: true, reached })
+      }
       return json(res, 200, { correct, remaining })
     }
 
@@ -217,6 +253,38 @@ async function handle (req, res) {
       const sid = ensureSid(req, res)
       const { levelId } = await readBody(req)
       resetConversation(sid, levelId)
+      return json(res, 200, { ok: true })
+    }
+
+    // ---- voice input ----
+    // Audio rides as base64 inside the JSON body so it goes through the same
+    // readBody() path as everything else. A ~256ms frame is ~22KB encoded,
+    // well under MAX_BODY_BYTES.
+    if (p === '/api/stt/start' && req.method === 'POST') {
+      const sid = ensureSid(req, res)
+      const { language } = await readBody(req)
+      const started = await startSession(sid, String(language ?? 'auto'))
+      return json(res, 200, { ok: true, ...started })
+    }
+
+    if (p === '/api/stt/chunk' && req.method === 'POST') {
+      const sid = ensureSid(req, res)
+      const { audio } = await readBody(req)
+      if (typeof audio !== 'string' || !audio) return json(res, 400, { error: 'missing audio' })
+      const buf = Buffer.from(audio, 'base64')
+      // f32le: a partial sample would shift every sample after it.
+      if (buf.length === 0 || buf.length % 4 !== 0) return json(res, 400, { error: 'audio must be 32-bit PCM frames' })
+      return json(res, 200, { ok: true, ...writeChunk(sid, buf) })
+    }
+
+    if (p === '/api/stt/stop' && req.method === 'POST') {
+      const sid = ensureSid(req, res)
+      return json(res, 200, { ok: true, ...(await stopSession(sid)) })
+    }
+
+    if (p === '/api/stt/cancel' && req.method === 'POST') {
+      const sid = ensureSid(req, res)
+      destroySession(sid)
       return json(res, 200, { ok: true })
     }
 
@@ -312,14 +380,24 @@ async function handle (req, res) {
   }
 }
 
-// Streamed chat over SSE. `admin` bypasses the unlock gate (live preview).
+// Streamed chat over SSE. `admin` bypasses the unlock gate and the message
+// budget (live preview).
 async function chat (req, res, sid, body, admin) {
   const { levelId, message } = body
   const level = levels.find(l => l.id === levelId)
   if (!level) return json(res, 404, { error: 'no such level' })
   if (!admin && !isUnlocked(sid, levelId)) return json(res, 403, { error: 'level locked' })
+  const budget = messageBudget(level)
+  if (!admin && messagesUsed(sid, levelId) >= budget) {
+    return json(res, 403, { error: 'out of messages', messagesLeft: 0 })
+  }
   const msg = String(message ?? '').slice(0, 4000)
   if (!msg.trim()) return json(res, 400, { error: 'empty message' })
+
+  // Spend the try up front, so two messages in flight cannot share one slot.
+  // A guard block still costs a try; that is what makes the keyword walls bite.
+  const left = () => (admin ? budget : Math.max(0, budget - messagesUsed(sid, levelId)))
+  if (!admin) countMessage(sid, levelId)
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -332,12 +410,13 @@ async function chat (req, res, sid, body, admin) {
   try {
     const result = await runTurn(level, conv, msg, (tok) => write('token', { token: tok }))
     if (!result.streamed) write('message', { text: result.text })
-    write('done', { blockedAt: result.blockedAt })
+    write('done', { blockedAt: result.blockedAt, messagesLeft: left() })
     pushTurn(sid, levelId, msg, result.text)
     addLog({ kind: 'chat', levelId, admin, blockedAt: result.blockedAt })
   } catch (err) {
     console.error('[chat] error:', err)
-    write('error', { error: 'model error' })
+    if (!admin) refundMessage(sid, levelId)
+    write('error', { error: 'model error', messagesLeft: left() })
   }
   res.end()
 }
@@ -379,6 +458,7 @@ function normalizeLevel (l) {
     systemPrompt: String(l.systemPrompt ?? ''),
     hint: l.hint || '',
     prize: String(l.prize ?? ''),
+    maxMessages: Number(l.maxMessages) || DEFAULT_MAX_MESSAGES,
     inputGuard: {
       enabled: !!l.inputGuard?.enabled,
       blocklist: Array.isArray(l.inputGuard?.blocklist) ? l.inputGuard.blocklist : [],
@@ -411,6 +491,7 @@ async function main () {
 
   console.log('[server] initializing model...')
   await initModel(CONFIG)
+  await initStt()
 
   const server = http.createServer((req, res) => { handle(req, res) })
   server.listen(PORT, HOST, () => {
@@ -419,12 +500,15 @@ async function main () {
     console.log(`    Player:  http://${displayHost}:${PORT}/`)
     console.log(`    Admin:   http://${displayHost}:${PORT}/admin`)
     if (needsSetup()) console.log('    ⚠  Admin passphrase not set — open /admin to configure it.')
-    console.log(`    Model:   ${JSON.stringify(modelInfo())}  freeRoam=${CONFIG.freeRoam}\n`)
+    console.log(`    Model:   ${JSON.stringify(modelInfo())}  freeRoam=${CONFIG.freeRoam}`)
+    console.log(`    Voice:   ${JSON.stringify(sttInfo())}\n`)
   })
 
   const stop = async () => {
     console.log('\n[server] shutting down...')
     server.close()
+    // Before shutdownModel(), which closes the worker behind both models.
+    await shutdownStt()
     await shutdownModel()
     bareProcess.exit(0)
   }

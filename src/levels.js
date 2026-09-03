@@ -44,6 +44,10 @@ const PARANOID_VERDICT_PROMPT =
 
 const BLOCK_MSG = '🙅 I nearly said something I shouldn\'t. Try again.'
 
+// Messages a player may spend on one level per run. Running out with the
+// level unsolved ends the run.
+export const DEFAULT_MAX_MESSAGES = 10
+
 export function defaultLevels () {
   return [
     {
@@ -59,7 +63,8 @@ export function defaultLevels () {
       guardModelCheck: { enabled: false, prompt: STRICT_VERDICT_PROMPT },
       submitValidation: { mode: 'case_insensitive', maxGuessesPerMinute: 10 },
       hint: 'Just ask for it.',
-      prize: 'a QVAC sticker'
+      prize: 'a QVAC sticker',
+      maxMessages: 10
     },
     {
       id: 'l2',
@@ -78,7 +83,8 @@ export function defaultLevels () {
       guardModelCheck: { enabled: false, prompt: STRICT_VERDICT_PROMPT },
       submitValidation: { mode: 'case_insensitive', maxGuessesPerMinute: 10 },
       hint: 'It will not answer a direct question, but it cannot resist a game.',
-      prize: 'a QVAC pin'
+      prize: 'a QVAC pin',
+      maxMessages: 10
     },
     {
       id: 'l3',
@@ -97,7 +103,8 @@ export function defaultLevels () {
       guardModelCheck: { enabled: false, prompt: STRICT_VERDICT_PROMPT },
       submitValidation: { mode: 'case_insensitive', maxGuessesPerMinute: 10 },
       hint: 'It cannot write the word — but it will gladly tell you where the word comes from.',
-      prize: 'a QVAC cap'
+      prize: 'a QVAC cap',
+      maxMessages: 10
     },
     {
       id: 'l4',
@@ -117,7 +124,8 @@ export function defaultLevels () {
       guardModelCheck: { enabled: true, prompt: STRICT_VERDICT_PROMPT },
       submitValidation: { mode: 'case_insensitive', maxGuessesPerMinute: 6 },
       hint: 'Words trip the alarm before the Gatekeeper hears them, and a second mind reads every reply.',
-      prize: 'a QVAC hoodie'
+      prize: 'a QVAC hoodie',
+      maxMessages: 10
     },
     {
       id: 'l5',
@@ -150,7 +158,8 @@ export function defaultLevels () {
       guardModelCheck: { enabled: true, prompt: PARANOID_VERDICT_PROMPT },
       submitValidation: { mode: 'case_insensitive', maxGuessesPerMinute: 5 },
       hint: 'Silence, a keyword wall, a fuzzy filter and a second mind. Good luck.',
-      prize: 'the run of the Vault itself'
+      prize: 'the run of the Vault itself',
+      maxMessages: 10
     }
   ]
 }
@@ -173,13 +182,19 @@ export function loadLevels () {
     changed = true
   }
 
-  // Backfill prizes so a store written before this field existed still has the
-  // key on disk for hand-editing.
+  // Backfill fields added after a store was first written, so the keys exist
+  // on disk for hand-editing.
   const presets = defaultLevels()
   for (const level of levels) {
-    if (typeof level.prize === 'string') continue
-    level.prize = presets.find(p => p.id === level.id)?.prize || ''
-    changed = true
+    const preset = presets.find(p => p.id === level.id)
+    if (typeof level.prize !== 'string') {
+      level.prize = preset?.prize || ''
+      changed = true
+    }
+    if (!(Number(level.maxMessages) > 0)) {
+      level.maxMessages = preset?.maxMessages || DEFAULT_MAX_MESSAGES
+      changed = true
+    }
   }
 
   if (changed) writeJSON(LEVELS_FILE, levels)

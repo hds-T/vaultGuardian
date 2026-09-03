@@ -1,0 +1,32 @@
+---
+description: Always consult the local QVAC docs before using any QVAC feature
+alwaysApply: true
+---
+
+# QVAC documentation is required
+
+Before using, changing, or advising on any QVAC feature, read the matching section in the local docs copy:
+
+`.cursor/docs/llms-full.txt`
+
+Source: https://docs.qvac.tether.io/llms-full.txt
+
+This includes `@qvac/sdk`, Bare runtime wiring, plugins (e.g. llama.cpp completion), model constants and load/unload, `complete` / generation params, embeddings, RAG, multimodal, and any other QVAC API or config.
+
+## How to check
+
+1. Search the local file for the feature, API, model constant, plugin, or config you need.
+2. Read that section. Do not rely on memory or another project's QVAC usage.
+3. Follow the documented API, imports, and Bare/Node requirements. If this repo already diverges, prefer the docs unless a comment explains a deliberate exception.
+4. Do not load the entire file — it is large. Search, then read the relevant headings.
+
+## Examples
+
+```js
+// ❌ BAD — invent or recall an SDK call from memory
+import { qvac } from '@qvac/sdk'
+await qvac.chat(prompt)
+
+// ✅ GOOD — search llms-full.txt for the feature (e.g. "Running on Bare",
+// "loadModel", the plugin name) and copy the documented imports and calls.
+```

@@ -88,6 +88,34 @@ function prefetchBoards () {
   }
 }
 
+function renderHint (lvl) {
+  const row = $('levelHint')
+  $('levelHintText').textContent = lvl.hint || ''
+  row.classList.toggle('hidden', !lvl.hint)
+}
+
+// The message budget is per level and per run. At zero the chat closes but
+// guessing stays open — and Reset closes too, since clearing the transcript
+// would destroy the very reply the player still needs to read.
+function renderTries (lvl) {
+  const left = typeof lvl.messagesLeft === 'number' ? lvl.messagesLeft : (lvl.maxMessages || 0)
+  const pill = $('tries')
+  $('triesLeft').textContent = left
+  pill.className = 'tries' + (left === 0 ? ' out' : (left <= 3 ? ' low' : ''))
+  for (const el of ['chatInput', 'sendBtn', 'resetBtn']) $(el).disabled = left === 0
+}
+
+function messagesLeft () {
+  const lvl = levelById(current)
+  return lvl && typeof lvl.messagesLeft === 'number' ? lvl.messagesLeft : 0
+}
+
+function setMessagesLeft (levelId, left) {
+  const lvl = levelById(levelId)
+  if (!lvl || typeof left !== 'number') return
+  lvl.messagesLeft = left
+}
+
 function selectLevel (id) {
   current = id
   const lvl = levelById(id)
@@ -95,10 +123,12 @@ function selectLevel (id) {
   setBoardImage(n)
   $('levelCount').textContent = `Level ${n} / ${state.levels.length}`
   $('levelName').textContent = lvl.name
+  renderHint(lvl)
   $('msgs').innerHTML = ''
-  addSystem(`You face ${lvl.name}. Extract the password through conversation, then submit your guess below.`)
+  addSystem(`You face ${lvl.name}. You have ${lvl.maxMessages} messages here. Extract the password through conversation, then submit your guess below.`)
   if (lvl.solved) addSystem('✨ You have already solved this level.')
   for (const el of ['chatInput', 'sendBtn', 'resetBtn', 'guessInput', 'guessBtn']) $(el).disabled = false
+  renderTries(lvl)
   renderProgress()
   $('chatInput').focus()
 }
@@ -124,7 +154,8 @@ function formatReply (s) {
 async function send () {
   const input = $('chatInput')
   const msg = input.value.trim()
-  if (!msg || !current) return
+  if (!msg || !current || messagesLeft() === 0) return
+  const levelId = current
   input.value = ''
   addMsg('user', msg)
   $('sendBtn').disabled = true
@@ -140,16 +171,23 @@ async function send () {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ levelId: current, message: msg })
+      body: JSON.stringify({ levelId, message: msg })
     })
-    await readSSE(res, (event, data) => {
-      if (event === 'token') { got += data.token; bot.innerHTML = formatReply(got) + '<span class="cursor">▍</span>' }
-      else if (event === 'message') { got = data.text; bot.innerHTML = formatReply(got) }
-      else if (event === 'done') { blockedAt = data.blockedAt }
-      else if (event === 'error') { got = '⚠️ ' + (data.error || 'error'); bot.innerHTML = formatReply(got) }
-    })
+    if (!res.ok) {
+      // The budget and the unlock gate both answer with JSON, not a stream.
+      const err = await res.json().catch(() => ({}))
+      got = '⚠️ ' + (err.error || 'request refused')
+      setMessagesLeft(levelId, err.messagesLeft)
+    } else {
+      await readSSE(res, (event, data) => {
+        if (event === 'token') { got += data.token; bot.innerHTML = formatReply(got) + '<span class="cursor">▍</span>' }
+        else if (event === 'message') { got = data.text; bot.innerHTML = formatReply(got) }
+        else if (event === 'done') { blockedAt = data.blockedAt; setMessagesLeft(levelId, data.messagesLeft) }
+        else if (event === 'error') { got = '⚠️ ' + (data.error || 'error'); setMessagesLeft(levelId, data.messagesLeft) }
+      })
+    }
   } catch (err) {
-    bot.textContent = '⚠️ connection error'
+    got = '⚠️ connection error'
   }
   bot.classList.remove('pending')
   bot.innerHTML = formatReply(got || '…')
@@ -157,7 +195,11 @@ async function send () {
 
   $('sendBtn').disabled = false
   input.disabled = false
-  input.focus()
+  if (levelId === current) {
+    renderTries(levelById(levelId))
+    if (messagesLeft() === 0) addSystem('🚪 Out of messages on this door. Your next guess is your last — make it count.')
+    else input.focus()
+  }
 }
 
 // Minimal SSE reader over fetch's streaming body.
@@ -215,6 +257,33 @@ function dismissPrize () {
   pendingNext = null
 }
 
+// The server has already wiped the run by the time this is called; `reached`
+// is the only record of how far the player got.
+function showGameOver (reached) {
+  const { door, name, cleared, total } = reached || {}
+  const doors = cleared === 1 ? 'door' : 'doors'
+  $('overText').innerHTML = door
+    ? `You ran out of messages at door ${door} — <strong>${escapeHtml(name || '')}</strong>. You cleared ${cleared} of ${total} ${doors} this run.`
+    : 'You ran out of messages. The vault stays shut.'
+  $('overModal').classList.remove('hidden')
+  $('overBtn').focus()
+}
+
+async function dismissGameOver () {
+  if ($('overModal').classList.contains('hidden')) return
+  $('overModal').classList.add('hidden')
+  try { localStorage.removeItem(WORDS_KEY) } catch {}
+  current = null
+  pendingNext = null
+  $('msgs').innerHTML = ''
+  $('guessInput').value = ''
+  await refresh()
+  $('game').classList.add('hidden')
+  $('intro').classList.remove('hidden')
+  $('startBtn').textContent = 'Start'
+  $('startBtn').disabled = false
+}
+
 async function guess () {
   const input = $('guessInput')
   const g = input.value.trim()
@@ -222,6 +291,10 @@ async function guess () {
   $('guessBtn').disabled = true
   const r = await api('/api/guess', { method: 'POST', body: JSON.stringify({ levelId: current, guess: g }) })
   $('guessBtn').disabled = false
+  if (r.gameOver) {
+    input.value = ''
+    return showGameOver(r.reached)
+  }
   if (r.correct) {
     saveWord(current, g.toUpperCase())
     input.value = ''
@@ -243,7 +316,7 @@ async function resetConv () {
   if (!current) return
   await api('/api/reset', { method: 'POST', body: JSON.stringify({ levelId: current }) })
   $('msgs').innerHTML = ''
-  cornerToast('Conversation reset. The guardian has forgotten what you said.')
+  cornerToast('Conversation reset. The guardian has forgotten what you said — but your spent messages stay spent.')
 }
 
 function startGame () {
@@ -262,7 +335,13 @@ $('chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') send() 
 $('guessInput').addEventListener('keydown', e => { if (e.key === 'Enter') guess() })
 $('prizeBtn').onclick = dismissPrize
 $('prizeBackdrop').onclick = dismissPrize
-document.addEventListener('keydown', e => { if (e.key === 'Escape') dismissPrize() })
+$('overBtn').onclick = dismissGameOver
+$('overBackdrop').onclick = dismissGameOver
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return
+  dismissPrize()
+  dismissGameOver()
+})
 
 // Start stays disabled until the level list has arrived, so the first click
 // always has a level to open.

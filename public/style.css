@@ -126,6 +126,7 @@ a.pill:hover { color: var(--fg); border-color: var(--line-active); }
   font-size: var(--fs-lead); line-height: 1.6; color: #b9bdbe;
 }
 .intro-copy strong { color: var(--fg); font-weight: 500; }
+.intro-rules { font-size: var(--fs-body); color: var(--fg-muted); }
 .intro-meta {
   display: flex; gap: 10px; align-items: center; justify-content: center;
   margin-top: var(--space-3); flex-wrap: wrap;
@@ -149,6 +150,18 @@ a.pill:hover { color: var(--fg); border-color: var(--line-active); }
 }
 .levelbar .lname { font-size: var(--fs-sm); color: var(--fg); }
 .levelbar .spacer { flex: 1; }
+
+/* the per-level message budget: 10 down to 0 */
+.tries {
+  font-size: 11px; letter-spacing: var(--ls-ui); color: var(--fg-muted);
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  padding: 5px 11px; white-space: nowrap; transition: var(--transition);
+}
+.tries b { font-family: var(--font-mono); color: var(--fg); font-weight: 600; }
+.tries.low { color: #e8b04b; border-color: rgba(232,176,75,.4); background: rgba(232,176,75,.08); }
+.tries.low b { color: #e8b04b; }
+.tries.out { color: var(--bad); border-color: rgba(255,107,107,.4); background: rgba(255,107,107,.1); }
+.tries.out b { color: var(--bad); }
 .pips { display: flex; gap: 6px; align-items: center; }
 .pip {
   width: 26px; height: 4px; border-radius: var(--radius-pill);
@@ -156,6 +169,21 @@ a.pill:hover { color: var(--fg); border-color: var(--line-active); }
 }
 .pip.done { background: var(--qvac-green); }
 .pip.current { background: var(--qvac-green); opacity: .5; }
+
+/* only the opening levels ship a hint; the server sends null for the rest */
+.levelhint {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 12px; padding: 9px 13px;
+  background: var(--qvac-green-glass);
+  border: 1px solid rgba(22,227,193,.25);
+  border-radius: var(--radius);
+  color: #b9bdbe; font-size: var(--fs-xs); line-height: 1.5;
+}
+.levelhint .lbl {
+  font-family: var(--font-display); font-weight: 600;
+  font-size: 10.5px; letter-spacing: 1.4px; text-transform: uppercase;
+  color: var(--qvac-green); white-space: nowrap;
+}
 
 /* the chat board: artwork sits behind the text as the div's background */
 .board {
@@ -342,6 +370,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   font-size: var(--fs-lead); line-height: 1.6;
 }
 .modal-copy strong { color: var(--fg); font-weight: 500; }
+.modal-card.over { border-color: rgba(255,107,107,.45); }
+.modal-card.over .modal-title { color: var(--bad); }
 @keyframes modal-in {
   from { opacity: 0; transform: translateY(10px) scale(.97); }
   to { opacity: 1; transform: none; }

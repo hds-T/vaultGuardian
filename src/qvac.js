@@ -1,8 +1,9 @@
 // QVAC model lifecycle for the Bare runtime.
 //
 // Bare has no `process` global and does not auto-register SDK plugins, so we
-// install bare-process globally and register the llama.cpp completion plugin
-// explicitly before the first SDK call (see @qvac/sdk quickstart.bare).
+// install bare-process globally and register the llama.cpp completion and
+// whisper.cpp transcription plugins explicitly before the first SDK call
+// (see @qvac/sdk quickstart.bare).
 import bareProcess from 'bare-process'
 
 if (!globalThis.process) globalThis.process = bareProcess
@@ -45,6 +46,13 @@ export function modelInfo () {
   return { loaded: modelId !== null, model: loadedModelName, mock: MOCK }
 }
 
+// The registered plugin surface, shared with stt.js — plugins register once
+// per process, so transcription has to go through the same api object.
+export function sdkApi () {
+  if (!api) throw new Error('QVAC SDK not initialized')
+  return { sdk, api }
+}
+
 export async function initModel (config) {
   if (MOCK) {
     loadedModelName = 'mock'
@@ -56,7 +64,8 @@ export async function initModel (config) {
   // Subpath has no `.js` — that's the exact key in @qvac/sdk's exports map,
   // required for Bare's strict resolver (Node tolerates the `.js` variant).
   const { llmPlugin } = await import('@qvac/sdk/llamacpp-completion/plugin')
-  api = sdk.plugins([llmPlugin])
+  const { whisperPlugin } = await import('@qvac/sdk/whispercpp-transcription/plugin')
+  api = sdk.plugins([llmPlugin, whisperPlugin])
 
   const name = config.model || 'QWEN3_4B_INST_Q4_K_M'
   const modelSrc = sdk[name]

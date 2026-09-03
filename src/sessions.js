@@ -17,7 +17,7 @@ export function initSessions () {
 export function getSession (sid) {
   let s = sessions.get(sid)
   if (!s) {
-    s = { conversations: new Map(), guesses: new Map() }
+    s = { conversations: new Map(), guesses: new Map(), messages: new Map() }
     sessions.set(sid, s)
   }
   return s
@@ -43,8 +43,36 @@ export function pushTurn (sid, levelId, userMsg, assistantMsg) {
   while (conv.length > MAX_TURNS * 2) conv.shift()
 }
 
+// Deliberately leaves the message budget alone: a player may clear the
+// guardian's memory as often as they like, but the messages stay spent.
 export function resetConversation (sid, levelId) {
   getSession(sid).conversations.delete(levelId)
+}
+
+// --- per-level message budget ------------------------------------------------
+export function messagesUsed (sid, levelId) {
+  return getSession(sid).messages.get(levelId) || 0
+}
+
+export function countMessage (sid, levelId) {
+  const s = getSession(sid)
+  const used = (s.messages.get(levelId) || 0) + 1
+  s.messages.set(levelId, used)
+  return used
+}
+
+// A turn that never reached the player shouldn't cost them a try.
+export function refundMessage (sid, levelId) {
+  const s = getSession(sid)
+  const used = s.messages.get(levelId) || 0
+  if (used > 0) s.messages.set(levelId, used - 1)
+}
+
+// End of a run: forget the conversations, budgets, guess windows and solves.
+export function resetRun (sid) {
+  sessions.delete(sid)
+  delete progress[sid]
+  writeJSON(PROGRESS_FILE, progress)
 }
 
 export function solvedLevels (sid) {

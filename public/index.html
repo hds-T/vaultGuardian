@@ -21,6 +21,10 @@
       each level</strong>, each level you pass will get you a prize. Find all words and the final
       Vault will open — the prize inside is yours.
     </p>
+    <p class="intro-copy intro-rules">
+      You get <strong>10 messages per door</strong>. Clear the conversation as often as you like,
+      but a spent message is spent. Run out without the password and the run is over.
+    </p>
     <button id="startBtn" class="btn big" disabled>Start</button>
     <div class="intro-meta">
       <span id="introPill" class="pill">local model</span>
@@ -53,8 +57,14 @@
       <span class="count" id="levelCount">Level 1 / 5</span>
       <span class="lname" id="levelName">—</span>
       <span class="spacer"></span>
+      <span class="tries" id="tries"><b id="triesLeft">10</b> messages left</span>
       <div class="pips" id="pips"></div>
     </div>
+
+    <p id="levelHint" class="levelhint hidden">
+      <span class="lbl">Hint</span>
+      <span id="levelHintText"></span>
+    </p>
 
     <div class="board" id="board">
       <div id="msgs" class="msgs"></div>
@@ -91,6 +101,14 @@
     <h2 class="modal-title" id="prizeTitle">Door cleared</h2>
     <p class="modal-copy" id="prizeText"></p>
     <button id="prizeBtn" class="btn big">Continue</button>
+  </div>
+</div>
+<div id="overModal" class="modal hidden">
+  <div class="modal-backdrop" id="overBackdrop"></div>
+  <div class="modal-card over" role="dialog" aria-modal="true" aria-labelledby="overTitle">
+    <h2 class="modal-title" id="overTitle">Game over</h2>
+    <p class="modal-copy" id="overText"></p>
+    <button id="overBtn" class="btn big">Back to the start</button>
   </div>
 </div>
 
