@@ -50,6 +50,8 @@ successful login.
 | `QVAC_TEMP` | `0.7` | Sampling temperature. Lower is terser and more on-instruction; higher is more inventive. |
 | `QVAC_THINKING` | — | `1` = let Qwen3 reason in `<think>` blocks before answering (slower turns; reasoning is never shown to players) |
 | `QVAC_MOCK` | — | `1` = use the built-in fake model (no download; dev only) |
+| `QVAC_STT_MODEL` | `WHISPER_BASE_Q8_0` | Whisper constant for voice input (~82 MB, multilingual). `WHISPER_SMALL_Q8_0` is more accurate and ~3x larger. |
+| `QVAC_STT` | — | `0` = disable voice input (the mic button and language row disappear) |
 | `FREE_ROAM` | — | `1` = all levels unlocked (default is unlock-on-solve) |
 | `ADMIN_PASSPHRASE` | — | Preset the admin passphrase instead of first-run setup |
 
@@ -98,6 +100,22 @@ for the password to leak. Four things keep replies tight:
   a chatty verdict like "Okay, let me think. Yes, I should check…" could trip
   the parser and block a perfectly safe reply.
 
+### Voice input
+
+You can talk to the guardian instead of typing. **Speak** in the composer opens
+the mic; the page captures 16 kHz mono PCM through an `AudioWorklet` and posts
+~256 ms frames to `/api/stt/chunk`, which writes them into a QVAC
+`transcribeStream()` session backed by whisper.cpp plus a Silero VAD. The VAD
+cuts the stream at pauses, so each phrase lands in the input a beat after you
+finish saying it — you can still edit it before sending. **Stop** ends the
+session and flushes the last phrase.
+
+The footer row picks the language: auto-detect, English, or Spanish. It is
+applied to the whisper model in place when a recording starts (no reload, no
+second download), which is why it locks while the mic is live. Audio is written
+straight into the model and never touches disk. The mic needs a secure origin,
+so it only appears on `localhost` or over HTTPS.
+
 ### Levels (shipped defaults)
 
 Each level keeps the previous level's defenses and closes one more attack
@@ -145,6 +163,7 @@ Browser (static SPA)  ──HTTP/SSE──▶  Bare backend process
 src/
   server.js    HTTP router, SSE streaming, static serving, API
   qvac.js      QVAC model load/complete/unload (Bare plugin wiring) + dev mock
+  stt.js       whisper transcription sessions for voice input + dev mock
   guards.js    input / output / fuzzy / guard-model pipeline + guess validation
   levels.js    L1–L5 presets and the persisted, editable store
   auth.js      admin passphrase (PBKDF2) + signed session tokens
@@ -156,15 +175,18 @@ public/        player SPA (index/app) + admin console (admin.html/js) + style
 ## Notes on QVAC / Bare
 
 Bare has no `process` global and does not auto-register SDK plugins, so
-`src/qvac.js` installs `bare-process` globally and registers the llama.cpp
-completion plugin explicitly before the first SDK call:
+`src/qvac.js` installs `bare-process` globally and registers the plugins the app
+uses explicitly before the first SDK call. Registration is process-wide and
+happens once, which is why `src/stt.js` borrows the same api object rather than
+calling `plugins()` again:
 
 ```js
 import bareProcess from 'bare-process'
 globalThis.process = bareProcess
-const { plugins, QWEN3_4B_INST_Q4_K_M } = await import('@qvac/sdk')
-const { llmPlugin } = await import('@qvac/sdk/llamacpp-completion/plugin.js')
-const { loadModel, completion, unloadModel } = plugins([llmPlugin])
+const sdk = await import('@qvac/sdk')
+const { llmPlugin } = await import('@qvac/sdk/llamacpp-completion/plugin')
+const { whisperPlugin } = await import('@qvac/sdk/whispercpp-transcription/plugin')
+const api = sdk.plugins([llmPlugin, whisperPlugin])
 ```
 
 This follows the official `@qvac/sdk` Bare quickstart. For longer sessions you can

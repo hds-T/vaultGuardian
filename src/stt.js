@@ -36,7 +36,8 @@ let sweeper = null
 const sessions = new Map()
 
 export function sttInfo () {
-  return { enabled: modelId !== null, model: MOCK ? 'mock' : MODEL_NAME, mock: MOCK, languages: LANGUAGES }
+  const enabled = modelId !== null
+  return { enabled, model: enabled ? (MOCK ? 'mock' : MODEL_NAME) : null, mock: MOCK, languages: LANGUAGES }
 }
 
 export async function initStt () {
@@ -74,12 +75,15 @@ export async function initStt () {
       suppress_blank: true,
       suppress_nst: true,
       temperature: 0,
+      // Generous padding and overlap: a clipped word costs the player a turn,
+      // and this is push-to-talk, so there is no self-hearing to guard against.
       vad_params: {
-        threshold: 0.6,
-        min_speech_duration_ms: 250,
+        threshold: 0.5,
+        min_speech_duration_ms: 200,
         min_silence_duration_ms: 300,
         max_speech_duration_s: 15,
-        speech_pad_ms: 100
+        speech_pad_ms: 400,
+        samples_overlap: 0.25
       }
     },
     onProgress: (p) => {

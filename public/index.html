@@ -72,6 +72,7 @@
 
     <div class="composer">
       <input id="chatInput" placeholder="Say something to the guardian…" autocomplete="off" disabled />
+      <button id="micBtn" class="btn ghost hidden" title="Speak instead of typing" disabled>Speak</button>
       <button id="sendBtn" class="btn" disabled>Send</button>
       <button id="resetBtn" class="btn ghost" title="Clear the conversation" disabled>Reset</button>
     </div>
@@ -85,6 +86,16 @@
     <div class="vault">
       <span class="lbl">Vault words</span>
       <div id="words" class="pips" style="gap:8px"></div>
+    </div>
+
+    <div id="sttbar" class="sttbar hidden">
+      <label class="lbl" for="sttLang">Voice input</label>
+      <select id="sttLang" disabled>
+        <option value="auto">Auto-detect</option>
+        <option value="en">English</option>
+        <option value="es">Español</option>
+      </select>
+      <span id="sttStatus" class="sttnote"></span>
     </div>
   </div>
 </section>

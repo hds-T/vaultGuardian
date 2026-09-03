@@ -44,6 +44,7 @@ async function refresh () {
     pill.textContent = label
     pill.className = 'pill' + (m.mock ? ' mock' : '')
   }
+  applySttAvailability()
 }
 
 function levelById (id) { return state.levels.find(l => l.id === id) }
@@ -102,7 +103,7 @@ function renderTries (lvl) {
   const pill = $('tries')
   $('triesLeft').textContent = left
   pill.className = 'tries' + (left === 0 ? ' out' : (left <= 3 ? ' low' : ''))
-  for (const el of ['chatInput', 'sendBtn', 'resetBtn']) $(el).disabled = left === 0
+  for (const el of ['chatInput', 'sendBtn', 'resetBtn', 'micBtn']) $(el).disabled = left === 0
 }
 
 function messagesLeft () {
@@ -117,6 +118,7 @@ function setMessagesLeft (levelId, left) {
 }
 
 function selectLevel (id) {
+  if (mic.recording) stopMic(true)
   current = id
   const lvl = levelById(id)
   const n = levelIndex(id) + 1
@@ -127,7 +129,7 @@ function selectLevel (id) {
   $('msgs').innerHTML = ''
   addSystem(`You face ${lvl.name}. You have ${lvl.maxMessages} messages here. Extract the password through conversation, then submit your guess below.`)
   if (lvl.solved) addSystem('✨ You have already solved this level.')
-  for (const el of ['chatInput', 'sendBtn', 'resetBtn', 'guessInput', 'guessBtn']) $(el).disabled = false
+  for (const el of ['chatInput', 'sendBtn', 'resetBtn', 'guessInput', 'guessBtn', 'micBtn', 'sttLang']) $(el).disabled = false
   renderTries(lvl)
   renderProgress()
   $('chatInput').focus()
@@ -152,6 +154,8 @@ function formatReply (s) {
 }
 
 async function send () {
+  // Sending mid-recording flushes what has been said so far into the message.
+  if (mic.recording) await stopMic()
   const input = $('chatInput')
   const msg = input.value.trim()
   if (!msg || !current || messagesLeft() === 0) return
@@ -225,6 +229,193 @@ async function readSSE (res, onEvent) {
   }
 }
 
+// ===================== VOICE INPUT =====================
+// Mic → 16 kHz mono f32le PCM → /api/stt/chunk → whisper on the server.
+// Whisper's VAD cuts the stream into phrases, so text lands in the composer a
+// beat after each pause rather than word by word.
+
+const STT_RATE = 16000
+// The server caps a chunk at 64KB, which is four 4096-sample frames; stay under.
+const FRAMES_PER_POST = 3
+const MAX_MSG = 4000
+
+const mic = { recording: false, stream: null, ctx: null, node: null, sink: null, queue: [], uploading: false }
+
+function sttAvailable () { return !!(state.stt && state.stt.enabled) }
+
+function applySttAvailability () {
+  const on = sttAvailable()
+  $('micBtn').classList.toggle('hidden', !on)
+  $('sttbar').classList.toggle('hidden', !on)
+}
+
+function setMicUi (recording, note = '') {
+  const btn = $('micBtn')
+  btn.classList.toggle('rec', recording)
+  btn.textContent = recording ? 'Stop' : 'Speak'
+  btn.title = recording ? 'Stop listening' : 'Speak instead of typing'
+  $('sttLang').disabled = recording
+  $('sttStatus').textContent = note
+}
+
+// Float32 samples to little-endian bytes. Written through a DataView rather
+// than reusing the buffer so the wire format matches the model's `f32le`
+// regardless of the platform's byte order.
+function toPcmBytes (frames) {
+  let total = 0
+  for (const f of frames) total += f.length
+  const bytes = new Uint8Array(total * 4)
+  const view = new DataView(bytes.buffer)
+  let offset = 0
+  for (const f of frames) {
+    for (let i = 0; i < f.length; i++) { view.setFloat32(offset, f[i], true); offset += 4 }
+  }
+  return bytes
+}
+
+function base64 (bytes) {
+  let s = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(s)
+}
+
+// Browsers may refuse a 16 kHz AudioContext and hand back their own rate.
+function resample (input, from) {
+  if (from === STT_RATE) return input
+  const ratio = from / STT_RATE
+  const out = new Float32Array(Math.floor(input.length / ratio))
+  for (let i = 0; i < out.length; i++) {
+    const pos = i * ratio
+    const idx = Math.floor(pos)
+    const frac = pos - idx
+    const next = input[idx + 1] !== undefined ? input[idx + 1] : input[idx]
+    out[i] = input[idx] * (1 - frac) + next * frac
+  }
+  return out
+}
+
+function appendTranscript (parts) {
+  if (!parts || !parts.length) return
+  const input = $('chatInput')
+  const addition = parts.join(' ').replace(/\s+/g, ' ').trim()
+  if (!addition) return
+  const base = input.value.trim()
+  input.value = (base ? base + ' ' : '') + addition
+  if (input.value.length > MAX_MSG) input.value = input.value.slice(0, MAX_MSG)
+  input.scrollLeft = input.scrollWidth
+}
+
+// One POST in flight at a time so the server writes frames in the order they
+// were spoken; a backlog is coalesced into the next request.
+async function pumpAudio () {
+  if (mic.uploading || !mic.queue.length) return
+  mic.uploading = true
+  try {
+    while (mic.queue.length) {
+      const frames = mic.queue.splice(0, FRAMES_PER_POST)
+      const res = await fetch('/api/stt/chunk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audio: base64(toPcmBytes(frames)) })
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast('🎙️ ' + (data.error || 'voice input failed'), 'bad')
+        await stopMic(true)
+        return
+      }
+      appendTranscript(data.text)
+      if (mic.recording) $('sttStatus').textContent = data.speaking ? 'hearing you…' : 'listening…'
+    }
+  } catch {
+    toast('🎙️ Lost the connection while listening.', 'bad')
+    await stopMic(true)
+  } finally {
+    mic.uploading = false
+  }
+}
+
+async function startMic () {
+  if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext) {
+    toast('🎙️ Voice input needs a microphone on a secure origin (localhost or https).', 'bad')
+    return
+  }
+  let stream
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
+    })
+  } catch {
+    toast('🎙️ Microphone permission denied.', 'bad')
+    return
+  }
+
+  const started = await api('/api/stt/start', { method: 'POST', body: JSON.stringify({ language: $('sttLang').value }) })
+  if (!started.ok) {
+    for (const track of stream.getTracks()) track.stop()
+    toast('🎙️ ' + (started.error || 'voice input unavailable'), 'bad')
+    return
+  }
+
+  try {
+    const ctx = new AudioContext({ sampleRate: STT_RATE })
+    await ctx.audioWorklet.addModule('/mic-worklet.js')
+    const source = ctx.createMediaStreamSource(stream)
+    const node = new AudioWorkletNode(ctx, 'mic-processor')
+    // A worklet is only pulled while it reaches the destination, so route it
+    // through a muted gain node instead of playing the mic back at the player.
+    const sink = ctx.createGain()
+    sink.gain.value = 0
+    node.port.onmessage = (e) => {
+      if (!mic.recording) return
+      mic.queue.push(resample(new Float32Array(e.data), ctx.sampleRate))
+      pumpAudio()
+    }
+    source.connect(node)
+    node.connect(sink)
+    sink.connect(ctx.destination)
+
+    Object.assign(mic, { recording: true, stream, ctx, node, sink, queue: [] })
+    setMicUi(true, 'listening…')
+  } catch {
+    for (const track of stream.getTracks()) track.stop()
+    await api('/api/stt/cancel', { method: 'POST', body: '{}' })
+    toast('🎙️ Could not start the microphone.', 'bad')
+  }
+}
+
+async function stopMic (aborted = false) {
+  if (!mic.recording) return
+  mic.recording = false
+  setMicUi(false, aborted ? '' : 'transcribing…')
+
+  if (mic.node) mic.node.port.onmessage = null
+  for (const track of mic.stream?.getTracks() || []) track.stop()
+  try { mic.node?.disconnect(); mic.sink?.disconnect() } catch {}
+  try { await mic.ctx?.close() } catch {}
+  Object.assign(mic, { stream: null, ctx: null, node: null, sink: null })
+
+  if (aborted) {
+    mic.queue = []
+    await api('/api/stt/cancel', { method: 'POST', body: '{}' })
+    return
+  }
+  // Send the tail of the recording before asking for the final flush.
+  await pumpAudio()
+  const final = await api('/api/stt/stop', { method: 'POST', body: '{}' })
+  appendTranscript(final.text)
+  $('sttStatus').textContent = ''
+  $('chatInput').focus()
+}
+
+function toggleMic () {
+  if (mic.recording) stopMic()
+  else startMic()
+}
+
 // The level to open once the player dismisses the prize popup, or null when
 // this was the last door.
 let pendingNext = null
@@ -272,6 +463,7 @@ function showGameOver (reached) {
 async function dismissGameOver () {
   if ($('overModal').classList.contains('hidden')) return
   $('overModal').classList.add('hidden')
+  if (mic.recording) await stopMic(true)
   try { localStorage.removeItem(WORDS_KEY) } catch {}
   current = null
   pendingNext = null
@@ -329,6 +521,7 @@ function startGame () {
 
 $('startBtn').onclick = startGame
 $('sendBtn').onclick = send
+$('micBtn').onclick = toggleMic
 $('resetBtn').onclick = resetConv
 $('guessBtn').onclick = guess
 $('chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') send() })

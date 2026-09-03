@@ -249,6 +249,22 @@ a.pill:hover { color: var(--fg); border-color: var(--line-active); }
 }
 .word.found { border: 1px solid rgba(22,227,193,.35); color: var(--qvac-green); background: var(--qvac-green-glass); border-style: solid; }
 
+/* voice input footer */
+.sttbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 14px; color: var(--fg-muted); font-size: var(--fs-xs);
+}
+.sttbar .lbl { letter-spacing: 1.4px; text-transform: uppercase; font-size: 10.5px; }
+.sttbar select { padding: 6px 8px; font-size: 12px; width: auto; }
+.sttnote { font-family: var(--font-mono); font-size: 11px; color: var(--qvac-green); }
+button.btn.ghost.rec { color: var(--qvac-green); border-color: var(--line-active); background: var(--qvac-green-glass); }
+button.btn.ghost.rec::before {
+  content: ''; display: inline-block; vertical-align: middle;
+  width: 7px; height: 7px; margin-right: 7px; border-radius: 50%;
+  background: var(--qvac-green); animation: micpulse 1.2s ease-in-out infinite;
+}
+@keyframes micpulse { 50% { opacity: .25; } }
+
 /* ===================== LEVEL LIST (admin) ===================== */
 .levels { display: flex; flex-direction: column; gap: 6px; }
 .lvl {
@@ -386,4 +402,5 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   .hero .mark { animation: none; }
   .modal-card { animation: none; }
+  button.btn.ghost.rec::before { animation: none; }
 }
