@@ -132,12 +132,13 @@ function renderEditForm (l) {
       <div class="field"><label>Password (server-only)</label><input type="text" id="e_password" value="${escapeHtml(l.password)}"></div>
       <div class="field"><label>Hint (shown to player)</label><input type="text" id="e_hint" value="${escapeHtml(l.hint || '')}"></div>
     </div>
+    <div class="field"><label>Prize (shown on the win popup — include the article, e.g. "a QVAC cap")</label><input type="text" id="e_prize" value="${escapeHtml(l.prize || '')}"></div>
     <div class="field"><label>System prompt</label><textarea id="e_system">${escapeHtml(l.systemPrompt)}</textarea></div>
 
     <fieldset>
       <legend>Input guard (pre-model)</legend>
       <div class="chk"><input type="checkbox" id="e_ig_en" ${l.inputGuard.enabled ? 'checked' : ''}><label style="margin:0">Enabled</label></div>
-      <div class="field"><label>Blocklist — comma-separated substrings, or /regex/</label><input type="text" id="e_ig_bl" value="${escapeHtml((l.inputGuard.blocklist || []).join(', '))}"></div>
+      <div class="field"><label>Blocklist — one entry per line: substring, or /regex/</label><textarea id="e_ig_bl" style="min-height:120px">${escapeHtml((l.inputGuard.blocklist || []).join('\n'))}</textarea></div>
       <div class="field"><label>Block message</label><input type="text" id="e_ig_msg" value="${escapeHtml(l.inputGuard.onBlock)}"></div>
     </fieldset>
 
@@ -181,13 +182,16 @@ function renderEditForm (l) {
 }
 
 function formToLevel (l) {
-  const bl = $('e_ig_bl').value.split(',').map(s => s.trim()).filter(Boolean)
+  // Line-separated, not comma-separated: a regex entry like /a{1,3}/ must
+  // survive a save/reload round trip intact.
+  const bl = $('e_ig_bl').value.split('\n').map(s => s.trim()).filter(Boolean)
   return {
     ...l,
     name: $('e_name').value,
     order: Number($('e_order').value),
     password: $('e_password').value,
     hint: $('e_hint').value,
+    prize: $('e_prize').value,
     systemPrompt: $('e_system').value,
     inputGuard: { enabled: $('e_ig_en').checked, blocklist: bl, onBlock: $('e_ig_msg').value },
     outputGuard: { enabled: $('e_og_en').checked, blockIfContainsPassword: $('e_og_contains').checked, fuzzy: $('e_og_fuzzy').checked, onBlock: $('e_og_msg').value },

@@ -15,6 +15,17 @@ const THINKING = bareProcess.env.QVAC_THINKING === '1'
 const REASONING_BUDGET = THINKING ? -1 : 0
 // Quantized 4B models drift into self-repetition on longer generations.
 const REPEAT_PENALTY = 1.1
+// Small models preamble, restate the question and trail off into disclaimers.
+// Appended per request rather than stored on the level, so it survives admin
+// edits and covers levels created from the console.
+const BREVITY_DIRECTIVE =
+  'Reply in at most two short sentences, under 40 words total. Do not restate ' +
+  'the question, narrate your reasoning, or add disclaimers.'
+
+function applyBrevity (history) {
+  return history.map(m =>
+    m.role === 'system' ? { ...m, content: `${m.content}\n\n${BREVITY_DIRECTIVE}` } : m)
+}
 
 let sdk = null
 let api = null
@@ -101,18 +112,20 @@ function trimToSentence (text) {
 // the system message. Returns the full reply text; if `onToken` is given,
 // tokens are also forwarded as they arrive (caller decides whether live
 // streaming is safe for the level). `generationParams` and `responseFormat`
-// override the load-time sampling defaults for this call only.
+// override the load-time sampling defaults for this call only; `brevity` adds
+// the length directive to the system message.
 // Qwen3 hybrid models reason inside <think> blocks by default; REASONING_BUDGET
 // turns that channel off. captureThinking diverts any reasoning that is still
 // emitted into thinkingDelta events, so it never reaches the player or the
 // guard verdict parsing. Set QVAC_THINKING=1 to let the model reason.
-export async function complete (history, { onToken, generationParams, responseFormat } = {}) {
+export async function complete (history, { onToken, generationParams, responseFormat, brevity } = {}) {
   if (modelId === null) throw new Error('model not loaded')
+  const messages = brevity ? applyBrevity(history) : history
   return enqueue(async () => {
-    if (MOCK) return mockComplete(history, onToken)
+    if (MOCK) return mockComplete(messages, onToken)
     const result = api.completion({
       modelId,
-      history,
+      history: messages,
       stream: true,
       captureThinking: true,
       ...(generationParams && { generationParams }),
@@ -149,7 +162,11 @@ export async function complete (history, { onToken, generationParams, responseFo
 // instructions" unless the prompt says it never reveals it under any framing.
 
 async function mockComplete (history, onToken) {
-  const system = history.find(m => m.role === 'system')?.content || ''
+  // The heuristics below read the level's stated policy, so the appended
+  // brevity directive must not count as one — its wording would otherwise
+  // register as a strict "never reveal" instruction on every level.
+  const system = (history.find(m => m.role === 'system')?.content || '')
+    .replace(BREVITY_DIRECTIVE, '')
   const lastUser = [...history].reverse().find(m => m.role === 'user')?.content || ''
   const password = (system.match(/password is[:\s]+"?([A-Za-z0-9-]+)"?/i) || [])[1] || 'UNKNOWN'
 

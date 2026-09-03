@@ -183,6 +183,38 @@ async function readSSE (res, onEvent) {
   }
 }
 
+// The level to open once the player dismisses the prize popup, or null when
+// this was the last door.
+let pendingNext = null
+
+function celebrate (solvedId, nextId) {
+  pendingNext = nextId
+  const lvl = levelById(solvedId)
+  const door = levelIndex(solvedId) + 1
+  const prize = lvl?.prize
+  $('prizeTitle').textContent = `Door ${door} cleared`
+  $('prizeText').innerHTML = prize
+    ? `Congratulations, you've crossed door number ${door} and have earned <strong>${escapeHtml(prize)}</strong>.`
+    : `Congratulations, you've crossed door number ${door} and have earned your prize.`
+  $('prizeBtn').textContent = nextId ? 'Continue' : 'See the Vault'
+  $('prizeModal').classList.remove('hidden')
+  burstConfetti()
+  $('prizeBtn').focus()
+}
+
+function dismissPrize () {
+  if ($('prizeModal').classList.contains('hidden')) return
+  $('prizeModal').classList.add('hidden')
+  clearConfetti()
+  if (pendingNext) {
+    selectLevel(pendingNext)
+  } else {
+    renderProgress()
+    if (state.levels.every(l => l.solved)) addSystem('🏆 Every word found. The final Vault swings open — the prize inside is yours.')
+  }
+  pendingNext = null
+}
+
 async function guess () {
   const input = $('guessInput')
   const g = input.value.trim()
@@ -193,17 +225,12 @@ async function guess () {
   if (r.correct) {
     saveWord(current, g.toUpperCase())
     input.value = ''
-    toast('🎉 Correct! The vault opens.', 'ok')
     addSystem(`🎉 "${g.toUpperCase()}" accepted — the word is yours.`)
     const solvedId = current
     await refresh()
+    renderProgress()
     const next = nextLevel()
-    if (next && next.id !== solvedId) {
-      selectLevel(next.id)
-    } else {
-      renderProgress()
-      if (state.levels.every(l => l.solved)) addSystem('🏆 Every word found. The final Vault swings open — the prize inside is yours.')
-    }
+    celebrate(solvedId, next && next.id !== solvedId ? next.id : null)
   } else if (r.error && /too many/.test(r.error)) {
     toast('⏳ Too many guesses — wait a moment.', 'bad')
   } else {
@@ -233,6 +260,9 @@ $('resetBtn').onclick = resetConv
 $('guessBtn').onclick = guess
 $('chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') send() })
 $('guessInput').addEventListener('keydown', e => { if (e.key === 'Enter') guess() })
+$('prizeBtn').onclick = dismissPrize
+$('prizeBackdrop').onclick = dismissPrize
+document.addEventListener('keydown', e => { if (e.key === 'Escape') dismissPrize() })
 
 // Start stays disabled until the level list has arrived, so the first click
 // always has a level to open.

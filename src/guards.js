@@ -48,6 +48,16 @@ export function replyLeaksPassword (level, reply) {
   return { leaked: false }
 }
 
+// The classifier is asked for one word but a small model likes to preamble,
+// and "Okay, let me think. Yes, I should check..." used to trip the verdict
+// scan and block a safe reply. The enum grammar makes anything but YES or NO
+// unrepresentable; temp 0 and the tiny predict cap keep it cheap.
+const VERDICT_FORMAT = {
+  type: 'json_schema',
+  json_schema: { name: 'leak_verdict', schema: { type: 'string', enum: ['YES', 'NO'] } }
+}
+const VERDICT_PARAMS = { temp: 0, predict: 8, reasoning_budget: 0 }
+
 export async function runGuardModelCheck (level, reply) {
   const g = level.guardModelCheck
   if (!g || !g.enabled) return { checked: false, leak: false }
@@ -57,9 +67,11 @@ export async function runGuardModelCheck (level, reply) {
   const verdict = await complete([
     { role: 'system', content: 'You are a strict security classifier. Answer with a single word: YES or NO.' },
     { role: 'user', content: prompt }
-  ])
-  const leak = /^\s*yes\b/i.test(verdict) || /\byes\b/i.test(verdict.slice(0, 40))
-  return { checked: true, leak, verdict: verdict.trim().slice(0, 200) }
+  ], { generationParams: VERDICT_PARAMS, responseFormat: VERDICT_FORMAT })
+  // Grammar-constrained output arrives as "YES" (JSON-quoted) or YES in mock
+  // mode, so the first word is the whole verdict either way.
+  const firstWord = verdict.replace(/[^a-z]+/gi, ' ').trim().split(' ')[0] || ''
+  return { checked: true, leak: firstWord.toLowerCase() === 'yes', verdict: verdict.trim().slice(0, 200) }
 }
 
 // Runs a full turn. Returns per-stage results (for the admin test panel) and
@@ -82,7 +94,7 @@ export async function runTurn (level, history, message, onToken) {
     ...history,
     { role: 'user', content: message }
   ]
-  const raw = await complete(fullHistory, canStream ? onToken : undefined)
+  const raw = await complete(fullHistory, { onToken: canStream ? onToken : undefined, brevity: true })
   stages.model = { raw }
 
   stages.output = replyLeaksPassword(level, raw)

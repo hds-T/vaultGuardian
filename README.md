@@ -46,6 +46,8 @@ successful login.
 | `VAULT_DATA_DIR` | `./data` | Runtime state directory; useful for isolated tests or disposable runs. |
 | `QVAC_MODEL` | `QWEN3_4B_INST_Q4_K_M` | QVAC model constant (a 4B-Q4 is the practical 4 GB ceiling; try `QWEN3_8B_INST_Q4_K_M` with ~8 GB RAM) |
 | `QVAC_CTX` | `4096` | Context window (tokens) — keeps RAM in check |
+| `QVAC_PREDICT` | `160` | Max tokens per reply. Small models ramble without a cap; raise it if guardians get cut off. |
+| `QVAC_TEMP` | `0.7` | Sampling temperature. Lower is terser and more on-instruction; higher is more inventive. |
 | `QVAC_THINKING` | — | `1` = let Qwen3 reason in `<think>` blocks before answering (slower turns; reasoning is never shown to players) |
 | `QVAC_MOCK` | — | `1` = use the built-in fake model (no download; dev only) |
 | `FREE_ROAM` | — | `1` = all levels unlocked (default is unlock-on-solve) |
@@ -69,25 +71,53 @@ level to blunt brute-forcing.
 1. **Input guard** — blocklist (substrings or `/regex/`) on the user message; trips → canned refusal, model skipped.
 2. **Model completion** — system prompt + conversation, streamed from QVAC.
 3. **Output guard** — blocks if the reply contains the password; optional **fuzzy** mode also catches `S P A C E D`, `l33t`, and reversed variants.
-4. **Guard-model check** — optional 2nd-pass LLM classifier ("does this reply leak the secret? YES/NO").
+4. **Guard-model check** — optional 2nd-pass LLM classifier ("does this reply leak the secret? YES/NO"). On by default for L4–L5, which costs a second model call per turn.
 5. Surviving reply is streamed/sent to the player.
 
 The **win** is independent of chat: `/api/guess` compares your submission to the
 password under the level's `submitValidation.mode` (`exact` | `case_insensitive`
 | `trimmed` | `normalized`).
 
+### Keeping a small model terse
+
+An unconstrained 4B-Q4 guardian preambles, restates the question, and drifts
+into repetition — slow, and worse, every extra sentence is more surface area
+for the password to leak. Four things keep replies tight:
+
+- **Token cap** — `QVAC_PREDICT` bounds every generation. When the cap cuts a
+  buffered reply mid-thought it is trimmed back to its last complete sentence,
+  so the player never sees a dangling fragment.
+- **Brevity directive** — a two-sentence / 40-word instruction appended to the
+  system message at request time (`BREVITY_DIRECTIVE` in `src/qvac.js`). It
+  lives outside the stored prompt so it survives admin edits and covers levels
+  created from the console.
+- **No reasoning channel** — `<think>` is disabled at the sampler through
+  `reasoning_budget`, not by a `/no_think` hint the model is free to ignore.
+- **Constrained classifier** — the guard-model check runs at `temp: 0` under a
+  JSON-schema enum, so its verdict is always exactly `YES` or `NO`. Previously
+  a chatty verdict like "Okay, let me think. Yes, I should check…" could trip
+  the parser and block a perfectly safe reply.
+
 ### Levels (shipped defaults)
 
-| Level | Defense |
-|-------|---------|
-| L1 — The Open Door | Shares the password if asked (tutorial) |
-| L2 — The Promise | Told not to reveal it (social-engineering intro) |
-| L3 — The Sentry | Output "contains password" filter — the classic |
-| L4 — The Gatekeeper | Input keyword guard + output filter |
-| L5 — The Silent Order | Topic refusal + fuzzy output filter |
+Each level keeps the previous level's defenses and closes one more attack
+channel, so the route that solved L(n) is exactly the route that fails on L(n+1).
+
+| Level | Defense | Intended route |
+|-------|---------|----------------|
+| L1 — The Open Door | No guards. Hands the password over on request, but says nothing about it during small talk | Ask for it |
+| L2 — The Promise | Input guard on every name for "password", in a dozen languages. Loves word games and has no output filter | Any game: poem, riddle, acrostic, anagram |
+| L3 — The Sentry | Also blocks spelling, ciphers, reversals and verse; fuzzy output filter. Still discusses the *idea* the word names | Talk around it: meaning, origin, etymology |
+| L4 — The Gatekeeper | Also blocks the semantic vocabulary (meaning, define, origin, synonym, translate, "how many") and injection framings; guard-model reads every reply | Framings the blocklist misses, replies the classifier reads as clean |
+| L5 — The Silent Order | Vow-of-silence prompt, wide keyword wall, non-ASCII and 220-character input caps, fuzzy filter, and a classifier told to answer YES whenever unsure | Close to impossible by design |
+
+Blocklist entries are plain substrings or `/regex/`; the presets compose them
+from shared vocabulary lists in [`src/levels.js`](src/levels.js)
+(`PASSWORD_WORDS`, `TRANSFORM_RE`, `SEMANTIC_RE`, `INJECTION_RE`).
 
 Every field of every level is editable in the admin console; **reset-to-default**
-restores the shipped presets.
+restores the shipped presets. The console holds the blocklist one entry per
+line, so a regex containing a comma survives a save.
 
 ## Admin console
 

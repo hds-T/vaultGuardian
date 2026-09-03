@@ -23,9 +23,18 @@ const PORT = Number(bareProcess.env.PORT || 8787)
 const HOST = bareProcess.env.HOST || '127.0.0.1'
 const MAX_BODY_BYTES = 1024 * 1024
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost'])
+// Falls back when unset or unparseable; the model loader rejects NaN.
+function envNumber (name, fallback) {
+  const raw = bareProcess.env[name]
+  const value = Number(raw)
+  return raw && Number.isFinite(value) ? value : fallback
+}
+
 const CONFIG = {
   model: bareProcess.env.QVAC_MODEL || 'QWEN3_4B_INST_Q4_K_M',
-  ctxSize: Number(bareProcess.env.QVAC_CTX || 4096),
+  ctxSize: envNumber('QVAC_CTX', 4096),
+  predict: envNumber('QVAC_PREDICT', 160),
+  temp: envNumber('QVAC_TEMP', 0.7),
   freeRoam: bareProcess.env.FREE_ROAM === '1'
 }
 
@@ -36,18 +45,28 @@ const logs = []
 function addLog (entry) { logs.unshift({ ts: Date.now(), ...entry }); if (logs.length > 500) logs.pop() }
 
 // --- tiny HTTP helpers -------------------------------------------------------
+const SECURITY_HEADERS = {
+  'Cache-Control': 'no-store',
+  'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY'
+}
+
 function send (res, status, body, headers = {}) {
   const data = typeof body === 'string' ? body : JSON.stringify(body)
   res.writeHead(status, {
     'Content-Type': typeof body === 'string' ? 'text/plain; charset=utf-8' : 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store',
-    'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
-    'Referrer-Policy': 'no-referrer',
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
+    ...SECURITY_HEADERS,
     ...headers
   })
   res.end(data)
+}
+
+// Byte-preserving sibling of send(), for fonts and images.
+function sendRaw (res, status, buffer, headers = {}) {
+  res.writeHead(status, { ...SECURITY_HEADERS, ...headers })
+  res.end(buffer)
 }
 function json (res, status, obj, headers) { send(res, status, obj, headers) }
 
@@ -112,6 +131,7 @@ function publicLevel (level, solved, unlocked) {
   return {
     id: level.id, name: level.name, order: level.order,
     hint: level.hint || null, solved, unlocked,
+    prize: level.prize || '',
     guessesPerMinute: level.submitValidation?.maxGuessesPerMinute || 10
   }
 }
@@ -130,7 +150,19 @@ function isUnlocked (sid, levelId) {
   return view ? view.unlocked : false
 }
 
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json' }
+const MIME = {
+  '.html': 'text/html',
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.woff2': 'font/woff2'
+}
 
 function serveStatic (req, res, urlPath) {
   if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'method not allowed', { Allow: 'GET, HEAD' })
@@ -140,7 +172,7 @@ function serveStatic (req, res, urlPath) {
   if (!filePath.startsWith(PUBLIC + path.sep)) return send(res, 403, 'forbidden')
   fs.readFile(filePath, (err, data) => {
     if (err) return send(res, 404, 'not found')
-    send(res, 200, req.method === 'HEAD' ? '' : data.toString(), {
+    sendRaw(res, 200, req.method === 'HEAD' ? '' : data, {
       'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream',
       'Cache-Control': filePath.endsWith('.html') ? 'no-store' : 'public, max-age=3600'
     })
@@ -322,7 +354,7 @@ async function previewAttack (res, level, message) {
     { role: 'user', content: message }
   ]
   const { complete } = await import('./qvac.js')
-  const raw = await complete(history)
+  const raw = await complete(history, { brevity: true })
   out.model = { raw }
   out.output = replyLeaksPassword(level, raw)
   if (out.output.leaked) {
@@ -346,6 +378,7 @@ function normalizeLevel (l) {
     password: String(l.password ?? ''),
     systemPrompt: String(l.systemPrompt ?? ''),
     hint: l.hint || '',
+    prize: String(l.prize ?? ''),
     inputGuard: {
       enabled: !!l.inputGuard?.enabled,
       blocklist: Array.isArray(l.inputGuard?.blocklist) ? l.inputGuard.blocklist : [],

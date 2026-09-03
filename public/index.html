@@ -81,6 +81,20 @@
 
 <div id="toast" class="toast"></div>
 <div id="resetToast" class="toast corner"></div>
+
+<!-- ===================== CELEBRATION ===================== -->
+<div id="confetti" class="confetti" aria-hidden="true"></div>
+<div id="prizeModal" class="modal hidden">
+  <div class="modal-backdrop" id="prizeBackdrop"></div>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="prizeTitle">
+    <div class="modal-sigil"></div>
+    <h2 class="modal-title" id="prizeTitle">Door cleared</h2>
+    <p class="modal-copy" id="prizeText"></p>
+    <button id="prizeBtn" class="btn big">Continue</button>
+  </div>
+</div>
+
+<script src="/confetti.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

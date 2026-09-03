@@ -297,6 +297,56 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .cursor { animation: blink 1s step-end infinite; color: var(--qvac-green); }
 @keyframes blink { 50% { opacity: 0; } }
 
+/* ===================== CELEBRATION ===================== */
+.confetti {
+  position: fixed; inset: 0; z-index: 60;
+  pointer-events: none; overflow: hidden;
+}
+.confetti-bit {
+  position: absolute; top: -24px; left: var(--left);
+  width: var(--w); height: var(--h);
+  background: var(--c); border-radius: 1px;
+  animation: confetti-fall var(--t) var(--ease) var(--d) forwards;
+}
+@keyframes confetti-fall {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 1; }
+  85% { opacity: 1; }
+  100% { transform: translate3d(var(--x), 100vh, 0) rotate(var(--r)); opacity: 0; }
+}
+
+.modal {
+  position: fixed; inset: 0; z-index: 70;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.modal-backdrop { position: absolute; inset: 0; background: rgba(10,11,11,.72); }
+.modal-card {
+  position: relative; width: 100%; max-width: 480px; text-align: center;
+  padding: 34px 30px 30px;
+  background: var(--surface); border: 1px solid var(--line-active);
+  border-radius: var(--radius);
+  animation: modal-in var(--dur) var(--ease);
+}
+.modal-sigil {
+  width: 72px; height: 72px; margin: 0 auto 18px;
+  background: url("/assets/vault-mark.svg") center / contain no-repeat;
+  filter: drop-shadow(0 0 12px rgba(22,227,193,.4));
+}
+.modal-title {
+  font-family: var(--font-display); font-weight: 600;
+  font-size: var(--fs-h3); line-height: var(--lh-h3);
+  letter-spacing: -0.01em; margin: 0 0 12px; color: var(--qvac-green);
+}
+.modal-copy {
+  margin: 0 0 26px; color: #b9bdbe;
+  font-size: var(--fs-lead); line-height: 1.6;
+}
+.modal-copy strong { color: var(--fg); font-weight: 500; }
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(10px) scale(.97); }
+  to { opacity: 1; transform: none; }
+}
+
 @media (max-width: 760px) {
   .intro-title { font-size: var(--fs-hero); }
   .intro-copy { font-size: var(--fs-body); }
@@ -305,4 +355,5 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 }
 @media (prefers-reduced-motion: reduce) {
   .hero .mark { animation: none; }
+  .modal-card { animation: none; }
 }
