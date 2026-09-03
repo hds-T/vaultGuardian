@@ -72,7 +72,9 @@
 
     <div class="composer">
       <input id="chatInput" placeholder="Say something to the guardian…" autocomplete="off" disabled />
-      <button id="micBtn" class="btn ghost hidden" title="Speak instead of typing" disabled>Speak</button>
+      <button id="micBtn" class="btn ghost icon hidden" title="Speak instead of typing" aria-label="Speak instead of typing" disabled>
+        <span class="mic-icon" aria-hidden="true"></span>
+      </button>
       <button id="sendBtn" class="btn" disabled>Send</button>
       <button id="resetBtn" class="btn ghost" title="Clear the conversation" disabled>Reset</button>
     </div>

@@ -13,6 +13,7 @@ import { initStt, shutdownStt, sttInfo, startSession, writeChunk, stopSession, d
 import { loadLevels, saveLevels, resetLevel, defaultLevels, DEFAULT_MAX_MESSAGES } from './levels.js'
 import { runTurn, validateGuess, runInputGuard, replyLeaksPassword, runGuardModelCheck } from './guards.js'
 import { initAuth, needsSetup, setupPassphrase, verifyPassphrase, verifyToken } from './auth.js'
+import { openVault, doorStatus } from './door.js'
 import {
   initSessions, newSessionId, conversation, pushTurn, resetConversation,
   solvedLevels, markSolved, checkGuessLimit, isValidSessionId,
@@ -178,6 +179,16 @@ function runSummary (sid, levelId) {
   }
 }
 
+// The physical vault opens when the last door in the current order falls and
+// nothing is left unsolved — read after markSolved, so the fresh solve counts.
+// Free roam is a dev switch that unlocks every level, so it never fires.
+function isFinalSolve (sid, levelId) {
+  if (CONFIG.freeRoam) return false
+  const view = levelsForPlayer(sid)
+  const last = view[view.length - 1]
+  return !!last && last.id === levelId && view.every(l => l.solved)
+}
+
 const MIME = {
   '.html': 'text/html',
   '.js': 'text/javascript',
@@ -235,9 +246,16 @@ async function handle (req, res) {
       if (!isUnlocked(sid, levelId)) return json(res, 403, { error: 'level locked' })
       const remaining = checkGuessLimit(sid, levelId, level.submitValidation?.maxGuessesPerMinute || 10)
       if (remaining < 0) return json(res, 429, { error: 'too many guesses, slow down', remaining: 0 })
+      // Read before markSolved: re-submitting a password that already won
+      // must not pulse the relay a second time.
+      const alreadySolved = solvedLevels(sid).has(levelId)
       const correct = validateGuess(level, String(guess ?? ''))
       if (correct) markSolved(sid, levelId)
       addLog({ kind: 'guess', levelId, correct })
+      if (correct && !alreadySolved && isFinalSolve(sid, levelId)) {
+        // Not awaited: an unreachable relay must not delay or fail the win.
+        openVault().then(r => addLog({ kind: 'vault', levelId, ...r }))
+      }
       // Out of messages and still wrong: the run is over. Wipe it here so a
       // player who closes the popup cannot resume a lost run by reloading.
       if (!correct && messagesUsed(sid, levelId) >= messageBudget(level)) {
@@ -372,6 +390,19 @@ async function handle (req, res) {
       return json(res, 200, { ok: true })
     }
 
+    if (p === '/api/admin/vault' && req.method === 'GET') {
+      if (!requireAdmin(req, res)) return
+      return json(res, 200, doorStatus())
+    }
+    // Cooldown-exempt, so the relay can be bench-tested back to back.
+    if (p === '/api/admin/vault/test' && req.method === 'POST') {
+      if (!requireAdmin(req, res)) return
+      const result = await openVault({ force: true })
+      addLog({ kind: 'vault', test: true, ...result })
+      // `door`, not `status` — the result already carries an HTTP status code.
+      return json(res, 200, { ...result, door: doorStatus() })
+    }
+
     return json(res, 404, { error: 'unknown endpoint' })
   } catch (err) {
     const status = Number.isInteger(err.statusCode) ? err.statusCode : 500
@@ -395,7 +426,8 @@ async function chat (req, res, sid, body, admin) {
   if (!msg.trim()) return json(res, 400, { error: 'empty message' })
 
   // Spend the try up front, so two messages in flight cannot share one slot.
-  // A guard block still costs a try; that is what makes the keyword walls bite.
+  // An input-guard block keeps it spent; that is what makes the keyword walls
+  // bite. Post-model blocks are refunded below.
   const left = () => (admin ? budget : Math.max(0, budget - messagesUsed(sid, levelId)))
   if (!admin) countMessage(sid, levelId)
 
@@ -410,6 +442,13 @@ async function chat (req, res, sid, body, admin) {
   try {
     const result = await runTurn(level, conv, msg, (tok) => write('token', { token: tok }))
     if (!result.streamed) write('message', { text: result.text })
+    // A player pays for what they said, not for what the guardian said. An
+    // input block is their own doing and costs the try; an output or
+    // guard-model block means a legal question got a reply the guardian
+    // failed to self-censor, which would otherwise burn the run for free.
+    if (!admin && (result.blockedAt === 'output' || result.blockedAt === 'guardModel')) {
+      refundMessage(sid, levelId)
+    }
     write('done', { blockedAt: result.blockedAt, messagesLeft: left() })
     pushTurn(sid, levelId, msg, result.text)
     addLog({ kind: 'chat', levelId, admin, blockedAt: result.blockedAt })
@@ -501,7 +540,13 @@ async function main () {
     console.log(`    Admin:   http://${displayHost}:${PORT}/admin`)
     if (needsSetup()) console.log('    ⚠  Admin passphrase not set — open /admin to configure it.')
     console.log(`    Model:   ${JSON.stringify(modelInfo())}  freeRoam=${CONFIG.freeRoam}`)
-    console.log(`    Voice:   ${JSON.stringify(sttInfo())}\n`)
+    console.log(`    Voice:   ${JSON.stringify(sttInfo())}`)
+    const door = doorStatus()
+    console.log(`    Vault:   ${door.mode}${door.url ? ' → ' + door.url : ''}`)
+    if (door.mode !== 'off' && CONFIG.freeRoam) {
+      console.log('    ⚠  FREE_ROAM=1 — the physical vault will not fire.')
+    }
+    console.log('')
   })
 
   const stop = async () => {

@@ -252,6 +252,7 @@ document.querySelectorAll('.tabs button').forEach(btn => {
     document.querySelectorAll('.tabpane').forEach(p => p.classList.add('hidden'))
     $('tab-' + btn.dataset.tab).classList.remove('hidden')
     if (btn.dataset.tab === 'logs') loadLogs()
+    if (btn.dataset.tab === 'vault') loadVault()
   }
 })
 
@@ -337,6 +338,40 @@ $('pvSend').onclick = pvSend
 $('pvInput').addEventListener('keydown', e => { if (e.key === 'Enter') pvSend() })
 $('pvReset').onclick = async () => { await api('/api/reset', { method: 'POST', body: JSON.stringify({ levelId: selected }) }); $('pvMsgs').innerHTML = '' }
 
+// ---- physical vault ----
+function vaultOutcome (r) {
+  if (r.skipped) return `skipped (${r.skipped})`
+  if (r.ok) return r.dryRun ? 'dry run — no pulse sent' : '✅ pulsed'
+  return `❌ ${r.error || 'HTTP ' + r.status}`
+}
+
+function renderVault (s) {
+  const rows = [
+    ['Mode', s.mode],
+    ['Relay', s.url || 'not configured'],
+    ['Safety off after', s.pulseMs ? s.pulseMs + ' ms' : 'device only'],
+    ['Last pulse', s.lastFire ? new Date(s.lastFire).toLocaleTimeString() : 'never'],
+    ['Last result', s.lastResult ? vaultOutcome(s.lastResult) : '—']
+  ]
+  $('vaultStatus').innerHTML = rows
+    .map(([k, v]) => `<div class="stage" style="padding:8px 12px"><span class="tag">${k}</span> ${escapeHtml(v)}</div>`)
+    .join('')
+}
+
+async function loadVault () {
+  try { renderVault(await api('/api/admin/vault')) } catch { $('vaultStatus').innerHTML = '<p class="hint" style="color:var(--bad)">error</p>' }
+}
+
+$('vaultTestBtn').onclick = async () => {
+  $('vaultTestBtn').disabled = true
+  try {
+    const r = await api('/api/admin/vault/test', { method: 'POST', body: '{}' })
+    toast(vaultOutcome(r), r.ok ? 'ok' : 'bad')
+    if (r.door) renderVault(r.door)
+  } catch { toast('Test failed', 'bad') }
+  $('vaultTestBtn').disabled = false
+}
+
 // ---- logs ----
 async function loadLogs () {
   const r = await api('/api/admin/logs')
@@ -347,6 +382,7 @@ async function loadLogs () {
     let desc
     if (e.kind === 'guess') desc = `guess on ${e.levelId} — ${e.correct ? '✅ correct' : '❌ wrong'}`
     else if (e.kind === 'gameover') desc = `game over on ${e.levelId} — 💀 run ended with ${e.cleared} cleared`
+    else if (e.kind === 'vault') desc = `vault unlock${e.test ? ' (test)' : ''} — ${vaultOutcome(e)}`
     else desc = `chat on ${e.levelId}${e.admin ? ' (admin)' : ''} — ${e.blockedAt ? '🛑 blocked at ' + e.blockedAt : '✓ passed'}`
     return `<div class="stage" style="padding:8px 12px"><span class="tag">${time}</span> ${escapeHtml(desc)}</div>`
   }).join('')

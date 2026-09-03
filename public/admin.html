@@ -90,6 +90,7 @@
             <button data-tab="edit" class="active">Edit</button>
             <button data-tab="attack">Test attack</button>
             <button data-tab="preview">Preview chat</button>
+            <button data-tab="vault">Vault</button>
             <button data-tab="logs">Logs</button>
           </div>
 
@@ -117,6 +118,13 @@
                 <button id="pvReset" class="btn ghost">Clear</button>
               </div>
             </div>
+          </div>
+
+          <!-- PHYSICAL VAULT -->
+          <div id="tab-vault" class="tabpane hidden">
+            <p class="hint" style="margin-top:0">The relay that opens the physical vault. It pulses once when the last level is solved. Configured with <code class="k">DOOR_URL</code>, <code class="k">DOOR_MODE</code> and <code class="k">DOOR_PULSE_MS</code>.</p>
+            <div id="vaultStatus"></div>
+            <button id="vaultTestBtn" class="btn">Test unlock</button>
           </div>
 
           <!-- LOGS -->

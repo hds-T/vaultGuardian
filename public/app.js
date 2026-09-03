@@ -251,9 +251,10 @@ function applySttAvailability () {
 
 function setMicUi (recording, note = '') {
   const btn = $('micBtn')
+  const label = recording ? 'Stop listening' : 'Speak instead of typing'
   btn.classList.toggle('rec', recording)
-  btn.textContent = recording ? 'Stop' : 'Speak'
-  btn.title = recording ? 'Stop listening' : 'Speak instead of typing'
+  btn.title = label
+  btn.setAttribute('aria-label', label)
   $('sttLang').disabled = recording
   $('sttStatus').textContent = note
 }

@@ -257,12 +257,15 @@ a.pill:hover { color: var(--fg); border-color: var(--line-active); }
 .sttbar .lbl { letter-spacing: 1.4px; text-transform: uppercase; font-size: 10.5px; }
 .sttbar select { padding: 6px 8px; font-size: 12px; width: auto; }
 .sttnote { font-family: var(--font-mono); font-size: 11px; color: var(--qvac-green); }
-button.btn.ghost.rec { color: var(--qvac-green); border-color: var(--line-active); background: var(--qvac-green-glass); }
-button.btn.ghost.rec::before {
-  content: ''; display: inline-block; vertical-align: middle;
-  width: 7px; height: 7px; margin-right: 7px; border-radius: 50%;
-  background: var(--qvac-green); animation: micpulse 1.2s ease-in-out infinite;
+button.btn.icon { padding: 10px; display: inline-flex; align-items: center; justify-content: center; }
+.mic-icon {
+  width: 18px; height: 18px; display: block;
+  background: currentColor;
+  -webkit-mask: url("/assets/mic.svg") center / contain no-repeat;
+  mask: url("/assets/mic.svg") center / contain no-repeat;
 }
+button.btn.ghost.rec { color: var(--qvac-green); border-color: var(--line-active); background: var(--qvac-green-glass); }
+button.btn.ghost.rec .mic-icon { animation: micpulse 1.2s ease-in-out infinite; }
 @keyframes micpulse { 50% { opacity: .25; } }
 
 /* ===================== LEVEL LIST (admin) ===================== */
@@ -402,5 +405,5 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   .hero .mark { animation: none; }
   .modal-card { animation: none; }
-  button.btn.ghost.rec::before { animation: none; }
+  button.btn.ghost.rec .mic-icon { animation: none; }
 }
