@@ -7,7 +7,8 @@
     "start": "bare src/server.js",
     "dev": "QVAC_MOCK=1 bare src/server.js",
     "freeroam": "FREE_ROAM=1 bare src/server.js",
-    "test": "bare test/security.test.js"
+    "test": "bare test/security.test.js",
+    "blind-test": "node blind-test/src/cli.js"
   },
   "keywords": ["qvac", "bare", "prompt-injection", "llm", "security", "game"],
   "author": "",

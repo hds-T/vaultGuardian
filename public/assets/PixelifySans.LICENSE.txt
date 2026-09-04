@@ -1,0 +1,6 @@
+Pixelify Sans — Copyright 2021 The Pixelify Sans Project Authors
+(https://github.com/eifetx/Pixelify-Sans), designed by Stefie Justprince.
+Licensed under the SIL Open Font License 1.1: https://openfontlicense.org
+
+Vendored here (latin and latin-ext woff2 subsets, weights 400-700) because the
+game runs fully offline and must not reach a font CDN at runtime.

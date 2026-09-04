@@ -387,6 +387,7 @@ async function loadLogs () {
     if (e.kind === 'guess') desc = `guess on ${e.levelId} — ${e.correct ? '✅ correct' : '❌ wrong'}`
     else if (e.kind === 'gameover') desc = `game over on ${e.levelId} — 💀 run ended with ${e.cleared} cleared`
     else if (e.kind === 'vault') desc = `vault unlock${e.test ? ' (test)' : ''} — ${vaultOutcome(e)}`
+    else if (e.kind === 'restart') desc = 'run abandoned — back to the start'
     else desc = `chat on ${e.levelId}${e.admin ? ' (admin)' : ''} — ${e.blockedAt ? '🛑 blocked at ' + e.blockedAt : '✓ passed'}`
     return `<div class="stage" style="padding:8px 12px"><span class="tag">${time}</span> ${escapeHtml(desc)}</div>`
   }).join('')

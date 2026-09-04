@@ -87,11 +87,34 @@ export function refundMessage (sid, levelId) {
   if (used > 0) s.messages.set(levelId, used - 1)
 }
 
-// End of a run: forget the conversations, budgets, guess windows and solves.
+// End of a run (win or loss): forget conversations, budgets, guess windows and solves.
 export function resetRun (sid) {
   sessions.delete(sid)
-  delete progress[sid]
-  writeJSON(PROGRESS_FILE, progress)
+  if (progress) {
+    delete progress[sid]
+    writeJSON(PROGRESS_FILE, progress)
+  }
+}
+
+// --- vault grants ------------------------------------------------------------
+// Clearing the last door earns one pulse of the physical relay, but the player
+// spends it by pressing the button on the closing screen. The grant is kept
+// out of the session map on purpose: winning wipes the run, and the right to
+// open the vault has to outlive that wipe. Single use, and short lived so a
+// booth session cannot bank an unlock for later.
+const vaultGrants = new Map()
+const GRANT_TTL_MS = 10 * 60 * 1000
+
+export function grantVault (sid) {
+  vaultGrants.set(sid, Date.now() + GRANT_TTL_MS)
+}
+
+// Burns the grant whatever the relay then does: one win, one press.
+export function consumeVaultGrant (sid) {
+  const expires = vaultGrants.get(sid)
+  vaultGrants.delete(sid)
+  if (!expires) return false
+  return expires > Date.now()
 }
 
 export function solvedLevels (sid) {

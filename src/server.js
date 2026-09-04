@@ -18,7 +18,7 @@ import {
   initSessions, newSessionId, conversation, pushTurn, resetConversation,
   solvedLevels, markSolved, checkGuessLimit, isValidSessionId,
   messagesUsed, countMessage, refundMessage, resetRun,
-  hintHistory, pushHint
+  hintHistory, pushHint, grantVault, consumeVaultGrant
 } from './sessions.js'
 import { coachHint } from './hints.js'
 import { translateForPlayer, isPlayerLanguage, translationInfo, shutdownTranslators } from './translate.js'
@@ -101,6 +101,20 @@ function readBody (req) {
   })
 }
 
+// Bare's URL implements `search` but not `searchParams`, so the one query
+// parameter the player API takes is read by hand.
+function queryParam (url, name) {
+  const raw = url.search || ''
+  for (const pair of raw.replace(/^\?/, '').split('&')) {
+    if (!pair) continue
+    const i = pair.indexOf('=')
+    const key = i > -1 ? pair.slice(0, i) : pair
+    if (decodeURIComponent(key) !== name) continue
+    try { return decodeURIComponent((i > -1 ? pair.slice(i + 1) : '').replace(/\+/g, ' ')) } catch { return '' }
+  }
+  return null
+}
+
 function parseCookies (req) {
   const out = {}
   const raw = req.headers.cookie
@@ -153,11 +167,15 @@ function publicLevel (level, { solved, unlocked, hintMode, messagesLeft }) {
 
 // How much help a door gives, by position rather than id, so reordered and
 // admin-created levels follow the same rule. The opening doors teach the game
-// with a coach that reads each attempt and answers it; the middle doors ship
-// one fixed line; the last one gives nothing. Decided here, not in the
-// browser, so a withheld hint cannot be read out of /api/state.
+// with a coach that reads each attempt and answers it; every door after that
+// ships one fixed line. Decided here, not in the browser, so a withheld hint
+// cannot be read out of /api/state.
+//
+// The last door used to give nothing, which made it a coin flip on whether the
+// player ever guessed that the weather is the one subject the monk will
+// discuss. Everything behind that opening is still work.
 const DYNAMIC_HINT_DOORS = 2
-const STATIC_HINT_DOORS = 4
+const STATIC_HINT_DOORS = 5
 
 function hintMode (index) {
   if (index < DYNAMIC_HINT_DOORS) return 'dynamic'
@@ -223,14 +241,23 @@ function runSummary (sid, levelId) {
   }
 }
 
+// True once every door in the current order is on the solve list. Free roam
+// unlocks every level for testing, so a full clear there is not the end of a
+// run and must not wipe the session.
+function runIsComplete (sid) {
+  if (CONFIG.freeRoam) return false
+  const ordered = orderedLevels()
+  if (!ordered.length) return false
+  const solved = solvedLevels(sid)
+  return ordered.every(l => solved.has(l.id))
+}
+
 // The physical vault opens when the last door in the current order falls and
 // nothing is left unsolved — read after markSolved, so the fresh solve counts.
-// Free roam is a dev switch that unlocks every level, so it never fires.
 function isFinalSolve (sid, levelId) {
-  if (CONFIG.freeRoam) return false
-  const view = levelsForPlayer(sid)
-  const last = view[view.length - 1]
-  return !!last && last.id === levelId && view.every(l => l.solved)
+  const ordered = orderedLevels()
+  const last = ordered[ordered.length - 1]
+  return !!last && last.id === levelId && runIsComplete(sid)
 }
 
 const MIME = {
@@ -273,7 +300,10 @@ async function handle (req, res) {
     // ---- public API ----
     if (p === '/api/state' && req.method === 'GET') {
       const sid = ensureSid(req, res)
-      const lang = langOf(url.searchParams.get('lang'))
+      // A finished run left on disk would resume the last door after a reload.
+      // Wipe it here so winning the last door always starts a new game.
+      if (runIsComplete(sid)) resetRun(sid)
+      const lang = langOf(queryParam(url, 'lang'))
       const levelView = await localizeLevels(levelsForPlayer(sid), lang)
       return json(res, 200, {
         levels: levelView,
@@ -305,8 +335,16 @@ async function handle (req, res) {
       if (correct) markSolved(sid, levelId)
       addLog({ kind: 'guess', levelId, correct })
       if (correct && !alreadySolved && isFinalSolve(sid, levelId)) {
-        // Not awaited: an unreachable relay must not delay or fail the win.
-        openVault().then(r => addLog({ kind: 'vault', levelId, ...r }))
+        // The relay is not pulsed here. The closing screen offers the player
+        // the vault, and /api/vault/open spends this grant when they take it.
+        grantVault(sid)
+        // Same wipe as a loss: a player who reloads must not land back on the
+        // last door of a finished run.
+        const reached = runSummary(sid, levelId)
+        resetRun(sid)
+        addLog({ kind: 'won', levelId, cleared: reached.cleared })
+        reached.name = await translateForPlayer(reached.name, langOf(guessLang))
+        return json(res, 200, { correct: true, won: true, remaining, reached })
       }
       // Out of messages and still wrong: the run is over. Wipe it here so a
       // player who closes the popup cannot resume a lost run by reloading.
@@ -325,6 +363,26 @@ async function handle (req, res) {
       const { levelId } = await readBody(req)
       resetConversation(sid, levelId)
       return json(res, 200, { ok: true })
+    }
+
+    // Header restart: same wipe as a loss, without pulsing the vault.
+    if (p === '/api/restart' && req.method === 'POST') {
+      const sid = ensureSid(req, res)
+      resetRun(sid)
+      addLog({ kind: 'restart' })
+      return json(res, 200, { ok: true })
+    }
+
+    // The closing screen's button. Only a session that just cleared the last
+    // door holds a grant, so this cannot be curled into a free unlock.
+    if (p === '/api/vault/open' && req.method === 'POST') {
+      const sid = ensureSid(req, res)
+      if (!consumeVaultGrant(sid)) return json(res, 403, { error: 'no unlock earned' })
+      const result = await openVault()
+      addLog({ kind: 'vault', ...result })
+      // The win is already banked, so a dead relay still answers 200: the
+      // screen moves on either way and only the log records the failure.
+      return json(res, 200, { ok: !!result.ok, skipped: result.skipped || null })
     }
 
     // ---- voice input ----

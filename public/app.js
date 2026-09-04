@@ -495,17 +495,41 @@ function celebrate (solvedId, nextId) {
   $('prizeBtn').focus()
 }
 
-function dismissPrize () {
+async function dismissPrize () {
   if ($('prizeModal').classList.contains('hidden')) return
   $('prizeModal').classList.add('hidden')
   clearConfetti()
   if (pendingNext) {
     selectLevel(pendingNext)
-  } else {
-    renderProgress()
-    if (state.levels.every(l => l.solved)) addSystem(t('sys.allFound'))
+    pendingNext = null
+    return
   }
   pendingNext = null
+  // Last door: the server has already wiped the run. Same as a loss — back
+  // to the intro so a reload cannot reopen the finished door.
+  await returnToIntro()
+}
+
+// The last door gets its own screen rather than the prize popup: the run is
+// over, and the button on it is what actually opens the physical vault. No
+// confetti here — the painting is doing that job.
+function showClosing () {
+  $('game').classList.add('hidden')
+  $('close').classList.remove('hidden')
+  $('closeBtn').disabled = false
+  $('closeBtn').focus()
+}
+
+// One press, whatever the relay says. The win is already banked server-side,
+// so a vault that is unplugged, in dry-run or simply absent still sends the
+// player home rather than trapping them on a dead button.
+async function openVault () {
+  const btn = $('closeBtn')
+  if (btn.disabled) return
+  btn.disabled = true
+  try { await api('/api/vault/open', { method: 'POST', body: '{}' }) } catch {}
+  $('close').classList.add('hidden')
+  await returnToIntro()
 }
 
 // The server has already wiped the run by the time this is called; `reached`
@@ -520,9 +544,21 @@ function showGameOver (reached) {
   $('overBtn').focus()
 }
 
-async function dismissGameOver () {
-  if ($('overModal').classList.contains('hidden')) return
+async function abandonRound () {
+  $('prizeModal').classList.add('hidden')
   $('overModal').classList.add('hidden')
+  clearConfetti()
+  // Wipe first, then walk back: returnToIntro re-reads /api/state, so the
+  // flags come back offering a fresh run from door 1 rather than "continue".
+  const r = await api('/api/restart', { method: 'POST', body: '{}' })
+  if (!r.ok) {
+    toast(t('err.generic'), 'bad')
+    return
+  }
+  await returnToIntro()
+}
+
+async function returnToIntro () {
   if (mic.recording) await stopMic(true)
   try { localStorage.removeItem(WORDS_KEY) } catch {}
   current = null
@@ -531,10 +567,17 @@ async function dismissGameOver () {
   $('guessInput').value = ''
   await refresh()
   $('game').classList.add('hidden')
+  $('close').classList.add('hidden')
   $('intro').classList.remove('hidden')
   // Back at the intro, the flags are live again: a new run can be a new
   // language without reloading the page.
   renderLangCtas()
+}
+
+async function dismissGameOver () {
+  if ($('overModal').classList.contains('hidden')) return
+  $('overModal').classList.add('hidden')
+  await returnToIntro()
 }
 
 async function guess () {
@@ -553,6 +596,15 @@ async function guess () {
     input.value = ''
     addSystem(t('sys.accepted', { word: g.toUpperCase() }))
     const solvedId = current
+    const lvl = levelById(solvedId)
+    if (lvl) lvl.solved = true
+    // Do not refresh() on a final win: the server has already wiped the run,
+    // and a fresh state would look like door 1 and skip the vault prize.
+    if (r.won) {
+      renderProgress()
+      showClosing()
+      return
+    }
     await refresh()
     renderProgress()
     const next = nextLevel()
@@ -615,6 +667,8 @@ $('chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') send() 
 $('guessInput').addEventListener('keydown', e => { if (e.key === 'Enter') guess() })
 $('prizeBtn').onclick = dismissPrize
 $('prizeBackdrop').onclick = dismissPrize
+$('closeBtn').onclick = openVault
+$('restartBtn').onclick = abandonRound
 $('overBtn').onclick = dismissGameOver
 $('overBackdrop').onclick = dismissGameOver
 document.addEventListener('keydown', e => {

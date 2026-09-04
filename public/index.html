@@ -11,8 +11,9 @@
 
 <!-- ===================== INTRO ===================== -->
 <section id="intro">
+  <!-- The hall, seal and HUD frame live in opening.jpeg. This stack is only
+       the live, localised copy and the three language doors. -->
   <div class="intro-inner">
-    <div class="hero"><div class="mark"></div></div>
     <img class="intro-logo" src="/assets/logo.svg" alt="QVAC" />
     <h1 class="intro-title">Vault<em>Guardian</em></h1>
     <p class="intro-copy" data-i18n-html="intro.copy"></p>
@@ -46,23 +47,22 @@
 
 <!-- ===================== GAME ===================== -->
 <section id="game" class="hidden">
-  <div class="wrap" style="padding-bottom:0">
+  <div class="stage">
     <header class="top">
       <div class="brand">
-        <img class="intro-logo" src="/assets/logo.svg" alt="QVAC" style="height:16px;margin:0" />
-        <div>
-          <h1>VaultGuardian</h1>
+        <img class="intro-logo" src="/assets/logo.svg" alt="QVAC" />
+        <div class="brand-copy">
+          <h1>Vault<em>Guardian</em></h1>
           <p data-i18n="header.tagline"></p>
         </div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center">
+      <div class="chrome">
         <span id="modelPill" class="pill">local model</span>
+        <button id="restartBtn" type="button" class="pill" data-i18n="pill.restart" data-i18n-title="pill.restartTitle"></button>
         <a class="pill" href="/admin" data-i18n="pill.admin">admin →</a>
       </div>
     </header>
-  </div>
 
-  <div class="stage">
     <div class="levelbar">
       <span class="count" id="levelCount">Level 1 / 5</span>
       <span class="lname" id="levelName">—</span>
@@ -106,6 +106,17 @@
       <select id="sttLang" disabled></select>
       <span id="sttStatus" class="sttnote"></span>
     </div>
+  </div>
+</section>
+
+<!-- ===================== CLOSING SCREEN =====================
+     The last door has fallen. Same title-plate treatment as the intro, and
+     the button is what actually pulses the physical vault. -->
+<section id="close" class="hidden">
+  <div class="close-inner">
+    <h1 class="close-title" data-i18n="close.title"></h1>
+    <p class="close-copy" data-i18n="close.copy"></p>
+    <button id="closeBtn" class="btn big" data-i18n="close.open"></button>
   </div>
 </section>
 
