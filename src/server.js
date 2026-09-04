@@ -512,7 +512,12 @@ async function chat (req, res, sid, body, admin) {
     // never delays the answer the player is waiting for.
     await sendCoaching(write, sid, level, msg, result, lang)
     write('done', { blockedAt: result.blockedAt, messagesLeft: left() })
-    pushTurn(sid, levelId, msg, result.text)
+    // Only a real exchange goes into the guardian's memory. A block reply is
+    // improvised for the player's benefit and was never the guardian's own
+    // answer; kept in history, the model reads it as the house style and
+    // repeats that line for the rest of the run. An input-blocked message
+    // never reached the model at all.
+    if (!result.blockedAt) pushTurn(sid, levelId, msg, result.text)
     addLog({ kind: 'chat', levelId, admin, blockedAt: result.blockedAt })
   } catch (err) {
     console.error('[chat] error:', err)
