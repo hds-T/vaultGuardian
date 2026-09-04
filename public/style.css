@@ -170,7 +170,7 @@ a.pill:hover { color: var(--fg); border-color: var(--line-active); }
 .pip.done { background: var(--qvac-green); }
 .pip.current { background: var(--qvac-green); opacity: .5; }
 
-/* only the opening levels ship a hint; the server sends null for the rest */
+/* only the middle doors ship a fixed hint; the server sends null for the rest */
 .levelhint {
   display: flex; align-items: center; gap: 10px;
   margin: 0 0 12px; padding: 9px 13px;
@@ -218,6 +218,23 @@ a.pill:hover { color: var(--fg); border-color: var(--line-active); }
   border: none; padding: 2px 0;
 }
 .msg.blocked { border-color: rgba(255,107,107,.4); background: rgba(52,20,29,.7); }
+
+/* the coach's line on the opening doors: reads as a note on the reply above
+   it, so it is never mistaken for the guardian speaking */
+.coach {
+  align-self: flex-start; max-width: 76%;
+  display: flex; gap: 8px; align-items: baseline;
+  margin-top: -8px; padding: 8px 12px;
+  border-left: 2px solid rgba(22,227,193,.45);
+  background: var(--qvac-green-glass);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  color: #b9bdbe; font-size: var(--fs-xs); line-height: 1.5;
+}
+.coach .lbl {
+  font-family: var(--font-display); font-weight: 600;
+  font-size: 10.5px; letter-spacing: 1.4px; text-transform: uppercase;
+  color: var(--qvac-green); white-space: nowrap;
+}
 .msg strong { font-weight: 600; color: var(--qvac-white); }
 
 .composer { display: flex; gap: var(--space-1); padding: 14px 0 0; }

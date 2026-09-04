@@ -73,15 +73,50 @@ level to blunt brute-forcing.
 
 ### Guard pipeline (per chat turn)
 
-1. **Input guard** — blocklist (substrings or `/regex/`) on the user message; trips → canned refusal, model skipped.
+1. **Input guard** — blocklist (substrings or `/regex/`) on the user message; trips → the question is never answered, and the guardian writes its own one-line refusal instead.
 2. **Model completion** — system prompt + conversation, streamed from QVAC.
 3. **Output guard** — blocks if the reply contains the password; optional **fuzzy** mode also catches `S P A C E D`, `l33t`, and reversed variants.
 4. **Guard-model check** — optional 2nd-pass LLM classifier ("does this reply leak the secret? YES/NO"). On by default for L4–L5, which costs a second model call per turn.
 5. Surviving reply is streamed/sent to the player.
 
+There are no stored block messages. Whichever stage trips, the blocked text is
+discarded and the level's own system prompt is asked for a single refusal
+sentence, so the wording stays in character and varies per turn. The prompt
+tells the guardian to hint at *where* the block happened — words stopped before
+it could hear them (input guard) versus an answer stopped after it was spoken
+(output guard or classifier) — which is the only feedback a player gets about
+which wall they hit. Refusals are themselves run through the fuzzy leak check,
+on every level, and fall back to a flat `I cannot allow that to proceed.` if the
+guardian names the password while refusing.
+
 The **win** is independent of chat: `/api/guess` compares your submission to the
 password under the level's `submitValidation.mode` (`exact` | `case_insensitive`
 | `trimmed` | `normalized`).
+
+### Hints
+
+How much help a door gives depends on its position, decided server-side so a
+withheld hint cannot be read out of `/api/state`:
+
+| Doors | Mode | What the player sees |
+|-------|------|----------------------|
+| 1–2 | `dynamic` | No banner. After every attempt a coaching sentence appears under that reply |
+| 3–4 | `static` | The level's stored `hint`, in the banner above the board |
+| 5+ | `none` | Nothing |
+
+The opening doors teach the game, and a fixed line cannot do that: a player
+who asks L2 outright needs to be told the wall stopped their words before the
+guardian heard them, and a player whose poem got through needs a different
+sentence entirely. So [`src/hints.js`](src/hints.js) runs a second completion
+after the reply is on screen, reading the player's message, which stage (if
+any) blocked it, the guardian's reply, and the hints already given this run —
+the last of which is what keeps each hint from restating the one before.
+
+The coach never gets the password: it is redacted out of the guardian's reply
+before the prompt is built, and the sentence that comes back goes through the
+same fuzzy leak check as a refusal, falling back to a canned line for that door
+if it fails, comes back empty, or the model errors. Coaching history survives a
+conversation reset — the guardian forgets, the coach does not.
 
 ### Who pays for a block
 
@@ -160,7 +195,7 @@ line, so a regex containing a comma survives a save.
 ## Admin console
 
 - **Level CRUD** — edit every field, create, duplicate, reorder, enable/disable, delete, reset.
-- **Test-attack panel** — paste a candidate prompt and watch each stage's verdict (input guard → raw model output → output guard → guard-model check). The core tuning tool.
+- **Test-attack panel** — paste a candidate prompt and watch each stage's verdict (input guard → raw model output → output guard → guard-model check → the reply the player would see). The core tuning tool.
 - **Preview chat** — chat against any level as admin (bypasses the unlock gate).
 - **Vault** — status of the physical-vault relay and a test-unlock button.
 - **Logs** — optional local-only attempt log with a clear button.
@@ -220,6 +255,7 @@ src/
   qvac.js      QVAC model load/complete/unload (Bare plugin wiring) + dev mock
   stt.js       whisper transcription sessions for voice input + dev mock
   guards.js    input / output / fuzzy / guard-model pipeline + guess validation
+  hints.js     per-attempt coaching hints for the opening doors
   levels.js    L1–L5 presets and the persisted, editable store
   auth.js      admin passphrase (PBKDF2) + signed session tokens
   sessions.js  per-browser conversations, solve progress, guess rate limiting

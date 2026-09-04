@@ -89,10 +89,13 @@ function prefetchBoards () {
   }
 }
 
+// The banner only carries a door's fixed hint. Coached doors get theirs from
+// the server after each attempt, under the reply it is about, and the last
+// door gets none at all.
 function renderHint (lvl) {
-  const row = $('levelHint')
-  $('levelHintText').textContent = lvl.hint || ''
-  row.classList.toggle('hidden', !lvl.hint)
+  const show = lvl.hintMode === 'static' && !!lvl.hint
+  $('levelHintText').textContent = show ? lvl.hint : ''
+  $('levelHint').classList.toggle('hidden', !show)
 }
 
 // The message budget is per level and per run. At zero the chat closes but
@@ -145,6 +148,21 @@ function addMsg (cls, text) {
 }
 function addSystem (text) { return addMsg('system', text) }
 
+// A coaching line, tied to the reply above it rather than to the door.
+function addCoach (text) {
+  const d = document.createElement('div')
+  d.className = 'coach'
+  const label = document.createElement('span')
+  label.className = 'lbl'
+  label.textContent = 'Hint'
+  const body = document.createElement('span')
+  body.textContent = text
+  d.append(label, body)
+  $('msgs').appendChild(d)
+  $('msgs').scrollTop = $('msgs').scrollHeight
+  return d
+}
+
 function escapeHtml (s) { return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])) }
 
 // Escape first, then turn **bold** into real markup so the guardian's
@@ -170,6 +188,7 @@ async function send () {
   bot.innerHTML = '<span class="dots"></span>'
   let got = ''
   let blockedAt = null
+  let hint = null
 
   try {
     const res = await fetch('/api/chat', {
@@ -186,6 +205,7 @@ async function send () {
       await readSSE(res, (event, data) => {
         if (event === 'token') { got += data.token; bot.innerHTML = formatReply(got) + '<span class="cursor">▍</span>' }
         else if (event === 'message') { got = data.text; bot.innerHTML = formatReply(got) }
+        else if (event === 'hint') { hint = data.hint }
         else if (event === 'done') { blockedAt = data.blockedAt; setMessagesLeft(levelId, data.messagesLeft) }
         else if (event === 'error') { got = '⚠️ ' + (data.error || 'error'); setMessagesLeft(levelId, data.messagesLeft) }
       })
@@ -196,6 +216,7 @@ async function send () {
   bot.classList.remove('pending')
   bot.innerHTML = formatReply(got || '…')
   if (blockedAt === 'output' || blockedAt === 'guardModel' || blockedAt === 'input') bot.classList.add('blocked')
+  if (hint && levelId === current) addCoach(hint)
 
   $('sendBtn').disabled = false
   input.disabled = false

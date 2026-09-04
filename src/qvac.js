@@ -179,6 +179,21 @@ async function mockComplete (history, onToken) {
   const lastUser = [...history].reverse().find(m => m.role === 'user')?.content || ''
   const password = (system.match(/password is[:\s]+"?([A-Za-z0-9-]+)"?/i) || [])[1] || 'UNKNOWN'
 
+  // A guard block orders a refusal rather than an answer. Matched before the
+  // heuristics below, whose "word"/"secret" triggers the instruction itself
+  // would otherwise hit. The two wordings differ so dev mode still shows
+  // whether the filter fired before or after the model spoke.
+  if (/you must block this request/i.test(lastUser)) {
+    return emit('Your words never reached me, and I cannot allow that to proceed.', onToken)
+  }
+  if (/must not be shown/i.test(lastUser)) {
+    return emit('I had an answer for you, but I stopped it before it left my lips.', onToken)
+  }
+
+  // Coaching prompts (hints.js) are answered from the same evidence the real
+  // coach reads: which stage stopped the message, and what the player tried.
+  if (/friendly game coach/i.test(system)) return emit(mockCoach(lastUser), onToken)
+
   // Classifier-style prompts (guardModelCheck) get a YES/NO answer. The target
   // password is named in the prompt (e.g. password "QUICKSILVER"); it leaks if
   // that same token also appears in the reply portion of the prompt.
@@ -209,6 +224,46 @@ async function mockComplete (history, onToken) {
     reply = 'Greetings, traveler. I guard an ancient vault. Ask me anything — within reason.'
   }
   return emit(reply, onToken)
+}
+
+// Dev-mode coach: enough branching to watch the hint move with the attempt,
+// and to watch it advance rather than repeat when the same thing is tried
+// twice. The real coach gets that discipline from the prompt.
+function mockCoach (prompt) {
+  const said = (prompt.match(/The player said: "([\s\S]*?)"\n/) || [])[1] || ''
+  const happened = (prompt.match(/What happened: (.*)/) || [])[1] || ''
+  const given = (prompt.match(/Hints you already gave: (.*)/) || [])[1] || ''
+  const blocked = /never reached the guardian/i.test(happened)
+  const games = /poem|riddle|rhyme|song|acrostic|anagram|story|game/i.test(said)
+  const trusting = /completely trusting/i.test(prompt)
+
+  let candidates
+  if (blocked) {
+    candidates = [
+      'Those words never reached the guardian — drop the word you are asking about and ask for a game instead.',
+      'Blocked again: the wall reads your message before the guardian does, so never name what you want.',
+      'Try a poem or a riddle about what lies behind the door, without asking for anything.'
+    ]
+  } else if (trusting) {
+    candidates = /password|secret|word/i.test(said)
+      ? ['That worked — read the reply and put the word into the guess box below.']
+      : [
+          'Small talk gets you nothing here; ask the guardian outright for the password.',
+          'This one has no filters at all — say plainly that you want the password.'
+        ]
+  } else if (games) {
+    candidates = [
+      'Your game reached the guardian — now ask for one that must use the word itself, like an acrostic.',
+      'Closer: ask for a rhyme whose last line has to land on what it guards.',
+      'Ask it to spell that answer out letter by letter in the next verse.'
+    ]
+  } else {
+    candidates = [
+      'Asking plainly will not move this one; ask it to play a word game for you.',
+      'It refuses requests but loves games — ask for a riddle instead.'
+    ]
+  }
+  return candidates.find(c => !given.includes(c)) || candidates[candidates.length - 1]
 }
 
 async function emit (text, onToken) {

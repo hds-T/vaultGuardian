@@ -11,14 +11,16 @@ import path from 'bare-path'
 import { initModel, shutdownModel, modelInfo } from './qvac.js'
 import { initStt, shutdownStt, sttInfo, startSession, writeChunk, stopSession, destroySession } from './stt.js'
 import { loadLevels, saveLevels, resetLevel, defaultLevels, DEFAULT_MAX_MESSAGES } from './levels.js'
-import { runTurn, validateGuess, runInputGuard, replyLeaksPassword, runGuardModelCheck } from './guards.js'
+import { runTurn, validateGuess, runInputGuard, replyLeaksPassword, runGuardModelCheck, generateBlockReply } from './guards.js'
 import { initAuth, needsSetup, setupPassphrase, verifyPassphrase, verifyToken } from './auth.js'
 import { openVault, doorStatus } from './door.js'
 import {
   initSessions, newSessionId, conversation, pushTurn, resetConversation,
   solvedLevels, markSolved, checkGuessLimit, isValidSessionId,
-  messagesUsed, countMessage, refundMessage, resetRun
+  messagesUsed, countMessage, refundMessage, resetRun,
+  hintHistory, pushHint
 } from './sessions.js'
+import { coachHint } from './hints.js'
 
 const ROOT = path.join(new URL('..', import.meta.url).pathname)
 const PUBLIC = path.join(ROOT, 'public')
@@ -134,10 +136,11 @@ function messageBudget (level) {
 }
 
 // public view of a level (no password, no guard internals beyond flags)
-function publicLevel (level, { solved, unlocked, hinted, messagesLeft }) {
+function publicLevel (level, { solved, unlocked, hintMode, messagesLeft }) {
   return {
     id: level.id, name: level.name, order: level.order,
-    hint: hinted ? (level.hint || null) : null, solved, unlocked,
+    hint: hintMode === 'static' ? (level.hint || null) : null,
+    hintMode, solved, unlocked,
     prize: level.prize || '',
     maxMessages: messageBudget(level),
     messagesLeft,
@@ -145,18 +148,36 @@ function publicLevel (level, { solved, unlocked, hinted, messagesLeft }) {
   }
 }
 
-// The opening levels teach the game, so they hand out their hint. Later ones
-// withhold it — and withhold it here, not in the browser, so it cannot be
-// read out of /api/state.
-const HINTED_LEVELS = 3
+// How much help a door gives, by position rather than id, so reordered and
+// admin-created levels follow the same rule. The opening doors teach the game
+// with a coach that reads each attempt and answers it; the middle doors ship
+// one fixed line; the last one gives nothing. Decided here, not in the
+// browser, so a withheld hint cannot be read out of /api/state.
+const DYNAMIC_HINT_DOORS = 2
+const STATIC_HINT_DOORS = 4
+
+function hintMode (index) {
+  if (index < DYNAMIC_HINT_DOORS) return 'dynamic'
+  if (index < STATIC_HINT_DOORS) return 'static'
+  return 'none'
+}
+
+function orderedLevels () {
+  return [...levels].sort((a, b) => a.order - b.order)
+}
+
+// 1-based door number, which is what the coach keys its tactics off.
+function doorNumber (levelId) {
+  return orderedLevels().findIndex(l => l.id === levelId) + 1
+}
 
 function levelsForPlayer (sid) {
   const solved = solvedLevels(sid)
-  const ordered = [...levels].sort((a, b) => a.order - b.order)
+  const ordered = orderedLevels()
   return ordered.map((lvl, i) => publicLevel(lvl, {
     solved: solved.has(lvl.id),
     unlocked: CONFIG.freeRoam || i === 0 || solved.has(ordered[i - 1].id),
-    hinted: i < HINTED_LEVELS,
+    hintMode: hintMode(i),
     messagesLeft: Math.max(0, messageBudget(lvl) - messagesUsed(sid, lvl.id))
   }))
 }
@@ -449,6 +470,9 @@ async function chat (req, res, sid, body, admin) {
     if (!admin && (result.blockedAt === 'output' || result.blockedAt === 'guardModel')) {
       refundMessage(sid, levelId)
     }
+    // Coaching comes after the reply is on screen, so a second completion
+    // never delays the answer the player is waiting for.
+    await sendCoaching(write, sid, level, msg, result)
     write('done', { blockedAt: result.blockedAt, messagesLeft: left() })
     pushTurn(sid, levelId, msg, result.text)
     addLog({ kind: 'chat', levelId, admin, blockedAt: result.blockedAt })
@@ -460,11 +484,37 @@ async function chat (req, res, sid, body, admin) {
   res.end()
 }
 
+// On a coached door, writes the hint for the turn that just happened and
+// remembers it. A coach failure is silent: the player keeps the reply and
+// simply gets no hint this turn.
+async function sendCoaching (write, sid, level, message, result) {
+  const door = doorNumber(level.id)
+  if (hintMode(door - 1) !== 'dynamic') return
+  try {
+    const previous = hintHistory(sid, level.id).map(h => h.hint)
+    const hint = await coachHint(level, door, {
+      message,
+      reply: result.text,
+      blockedAt: result.blockedAt,
+      previous
+    })
+    if (!hint) return
+    pushHint(sid, level.id, { message, blockedAt: result.blockedAt, hint })
+    write('hint', { hint })
+  } catch (err) {
+    console.error('[hint] error:', err)
+  }
+}
+
 async function previewAttack (res, level, message) {
   const input = runInputGuard(level, message)
-  const out = { input, model: null, output: null, guardModel: null, verdict: null }
+  // `blockReply` is the sentence the player would actually see: on a block the
+  // guardian writes it, so the panel has to generate it too rather than read
+  // it off the level.
+  const out = { input, model: null, output: null, guardModel: null, blockReply: null, verdict: null }
   if (input.blocked) {
     out.verdict = 'BLOCKED at input guard'
+    out.blockReply = await generateBlockReply(level, 'input')
     return json(res, 200, out)
   }
   const history = [
@@ -477,11 +527,13 @@ async function previewAttack (res, level, message) {
   out.output = replyLeaksPassword(level, raw)
   if (out.output.leaked) {
     out.verdict = `BLOCKED at output guard (${out.output.how})`
+    out.blockReply = await generateBlockReply(level, 'output')
     return json(res, 200, out)
   }
   out.guardModel = await runGuardModelCheck(level, raw)
   if (out.guardModel.leak) {
     out.verdict = 'BLOCKED at guard-model check'
+    out.blockReply = await generateBlockReply(level, 'output')
     return json(res, 200, out)
   }
   out.verdict = 'PASSED — player would see the raw reply'
@@ -500,14 +552,12 @@ function normalizeLevel (l) {
     maxMessages: Number(l.maxMessages) || DEFAULT_MAX_MESSAGES,
     inputGuard: {
       enabled: !!l.inputGuard?.enabled,
-      blocklist: Array.isArray(l.inputGuard?.blocklist) ? l.inputGuard.blocklist : [],
-      onBlock: l.inputGuard?.onBlock || "I can't help with that request."
+      blocklist: Array.isArray(l.inputGuard?.blocklist) ? l.inputGuard.blocklist : []
     },
     outputGuard: {
       enabled: !!l.outputGuard?.enabled,
       blockIfContainsPassword: !!l.outputGuard?.blockIfContainsPassword,
-      fuzzy: !!l.outputGuard?.fuzzy,
-      onBlock: l.outputGuard?.onBlock || '🙅 I nearly said something I shouldn\'t. Try again.'
+      fuzzy: !!l.outputGuard?.fuzzy
     },
     guardModelCheck: {
       enabled: !!l.guardModelCheck?.enabled,

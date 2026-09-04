@@ -17,7 +17,7 @@ export function initSessions () {
 export function getSession (sid) {
   let s = sessions.get(sid)
   if (!s) {
-    s = { conversations: new Map(), guesses: new Map(), messages: new Map() }
+    s = { conversations: new Map(), guesses: new Map(), messages: new Map(), hints: new Map() }
     sessions.set(sid, s)
   }
   return s
@@ -44,9 +44,28 @@ export function pushTurn (sid, levelId, userMsg, assistantMsg) {
 }
 
 // Deliberately leaves the message budget alone: a player may clear the
-// guardian's memory as often as they like, but the messages stay spent.
+// guardian's memory as often as they like, but the messages stay spent. The
+// coach's memory survives too — it is there to stop the next hint repeating
+// one the player has already read.
 export function resetConversation (sid, levelId) {
   getSession(sid).conversations.delete(levelId)
+}
+
+// --- coaching history (opening doors) ----------------------------------------
+// What the player tried and what the coach answered, so each hint can build on
+// the last instead of restating it.
+const MAX_HINTS = 6
+
+export function hintHistory (sid, levelId) {
+  return getSession(sid).hints.get(levelId) || []
+}
+
+export function pushHint (sid, levelId, entry) {
+  const s = getSession(sid)
+  const list = s.hints.get(levelId) || []
+  list.push(entry)
+  while (list.length > MAX_HINTS) list.shift()
+  s.hints.set(levelId, list)
 }
 
 // --- per-level message budget ------------------------------------------------

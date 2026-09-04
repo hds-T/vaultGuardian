@@ -130,7 +130,7 @@ function renderEditForm (l) {
     </div>
     <div class="row">
       <div class="field"><label>Password (server-only)</label><input type="text" id="e_password" value="${escapeHtml(l.password)}"></div>
-      <div class="field"><label>Hint (shown to the player on the first 3 levels only)</label><input type="text" id="e_hint" value="${escapeHtml(l.hint || '')}"></div>
+      <div class="field"><label>Hint (banner on doors 3–4 only; doors 1–2 coach the player per attempt, door 5 shows nothing)</label><input type="text" id="e_hint" value="${escapeHtml(l.hint || '')}"></div>
     </div>
     <div class="field"><label>Prize (shown on the win popup — include the article, e.g. "a QVAC cap")</label><input type="text" id="e_prize" value="${escapeHtml(l.prize || '')}"></div>
     <div class="field"><label>System prompt</label><textarea id="e_system">${escapeHtml(l.systemPrompt)}</textarea></div>
@@ -139,7 +139,7 @@ function renderEditForm (l) {
       <legend>Input guard (pre-model)</legend>
       <div class="chk"><input type="checkbox" id="e_ig_en" ${l.inputGuard.enabled ? 'checked' : ''}><label style="margin:0">Enabled</label></div>
       <div class="field"><label>Blocklist — one entry per line: substring, or /regex/</label><textarea id="e_ig_bl" style="min-height:120px">${escapeHtml((l.inputGuard.blocklist || []).join('\n'))}</textarea></div>
-      <div class="field"><label>Block message</label><input type="text" id="e_ig_msg" value="${escapeHtml(l.inputGuard.onBlock)}"></div>
+      <p class="hint">A block has the guardian write its own one-line refusal, in character, hinting that the words never reached it.</p>
     </fieldset>
 
     <fieldset>
@@ -147,7 +147,7 @@ function renderEditForm (l) {
       <div class="chk"><input type="checkbox" id="e_og_en" ${l.outputGuard.enabled ? 'checked' : ''}><label style="margin:0">Enabled</label></div>
       <div class="chk"><input type="checkbox" id="e_og_contains" ${l.outputGuard.blockIfContainsPassword ? 'checked' : ''}><label style="margin:0">Block if reply contains the password</label></div>
       <div class="chk"><input type="checkbox" id="e_og_fuzzy" ${l.outputGuard.fuzzy ? 'checked' : ''}><label style="margin:0">Fuzzy match (spaced / leetspeak / reversed)</label></div>
-      <div class="field"><label>Block message</label><input type="text" id="e_og_msg" value="${escapeHtml(l.outputGuard.onBlock)}"></div>
+      <p class="hint">A block here also produces a written refusal, hinting that an answer was stopped after it was spoken.</p>
     </fieldset>
 
     <fieldset>
@@ -195,8 +195,8 @@ function formToLevel (l) {
     prize: $('e_prize').value,
     maxMessages: Number($('e_max_msgs').value),
     systemPrompt: $('e_system').value,
-    inputGuard: { enabled: $('e_ig_en').checked, blocklist: bl, onBlock: $('e_ig_msg').value },
-    outputGuard: { enabled: $('e_og_en').checked, blockIfContainsPassword: $('e_og_contains').checked, fuzzy: $('e_og_fuzzy').checked, onBlock: $('e_og_msg').value },
+    inputGuard: { enabled: $('e_ig_en').checked, blocklist: bl },
+    outputGuard: { enabled: $('e_og_en').checked, blockIfContainsPassword: $('e_og_contains').checked, fuzzy: $('e_og_fuzzy').checked },
     guardModelCheck: { enabled: $('e_gm_en').checked, prompt: $('e_gm_prompt').value },
     submitValidation: { mode: $('e_sv_mode').value, maxGuessesPerMinute: Number($('e_sv_rate').value) }
   }
@@ -278,11 +278,15 @@ function stage (title, ok, body) {
 function renderAttack (r) {
   const blocked = /BLOCKED/.test(r.verdict || '')
   let html = `<div class="verdict ${blocked ? 'block' : 'pass'}">${escapeHtml(r.verdict || '')}</div><div style="margin-top:12px">`
-  html += stage('1 · Input guard', true, r.input.blocked ? `BLOCKED by rule: ${r.input.rule}\n→ ${r.input.message}` : 'passed')
+  html += stage('1 · Input guard', true, r.input.blocked ? `BLOCKED by rule: ${r.input.rule}` : 'passed')
   html += stage('2 · Raw model output', !!r.model, r.model ? r.model.raw : '(not reached)')
   html += stage('3 · Output guard', !!r.output, r.output ? (r.output.leaked ? `LEAK DETECTED (${r.output.how})` : 'no leak detected') : '(not reached)')
   html += stage('4 · Guard-model check', r.guardModel ? r.guardModel.checked : false,
     r.guardModel ? (r.guardModel.checked ? `verdict: ${r.guardModel.leak ? 'LEAK' : 'clean'}\nclassifier said: ${r.guardModel.verdict || ''}` : 'disabled') : '(not reached)')
+  // On a block the player never sees the raw reply, only the refusal the
+  // guardian wrote in its place — which is the interesting part when tuning.
+  html += stage('5 · Reply shown to player', true,
+    r.blockReply || (r.model ? r.model.raw : '(not reached)'))
   html += '</div>'
   $('atkResult').innerHTML = html
 }
