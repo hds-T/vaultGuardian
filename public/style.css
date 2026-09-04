@@ -132,6 +132,20 @@ a.pill:hover { color: var(--fg); border-color: var(--line-active); }
   margin-top: var(--space-3); flex-wrap: wrap;
 }
 
+/* language picker: one CTA per language, each labelled in its own tongue */
+.lang-pick {
+  margin: 0 0 12px; color: var(--fg-muted);
+  font-size: var(--fs-xs); letter-spacing: var(--ls-ui);
+}
+.lang-cta { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.lang-cta .btn.lang {
+  display: inline-flex; align-items: center; gap: 10px;
+}
+.lang-cta .flag {
+  width: 22px; height: auto; display: block;
+  border-radius: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,.35);
+}
+
 /* ===================== GAME SCREEN ===================== */
 #game { min-height: 100vh; display: flex; flex-direction: column; }
 .stage {
@@ -235,6 +249,12 @@ a.pill:hover { color: var(--fg); border-color: var(--line-active); }
   font-size: 10.5px; letter-spacing: 1.4px; text-transform: uppercase;
   color: var(--qvac-green); white-space: nowrap;
 }
+/* Held open while the coach writes: the slow breath says work is happening,
+   and the block is already the width the hint will land in. */
+.coach.pending { min-width: min(260px, 100%); animation: coach-breathe 1.8s ease-in-out infinite; }
+.coach.pending .txt { font-style: italic; }
+.coach.pending .txt::after { content: '…'; animation: dots 1.2s steps(4, end) infinite; }
+@keyframes coach-breathe { 50% { opacity: .38; } }
 .msg strong { font-weight: 600; color: var(--qvac-white); }
 
 .composer { display: flex; gap: var(--space-1); padding: 14px 0 0; }
@@ -423,4 +443,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .hero .mark { animation: none; }
   .modal-card { animation: none; }
   button.btn.ghost.rec .mic-icon { animation: none; }
+  .coach.pending, .coach.pending .txt::after { animation: none; }
+  .coach.pending { opacity: .7; }
 }

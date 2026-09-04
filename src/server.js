@@ -21,6 +21,7 @@ import {
   hintHistory, pushHint
 } from './sessions.js'
 import { coachHint } from './hints.js'
+import { translateForPlayer, isPlayerLanguage, translationInfo, shutdownTranslators } from './translate.js'
 
 const ROOT = path.join(new URL('..', import.meta.url).pathname)
 const PUBLIC = path.join(ROOT, 'public')
@@ -36,9 +37,11 @@ function envNumber (name, fallback) {
 }
 
 const CONFIG = {
-  model: bareProcess.env.QVAC_MODEL || 'QWEN3_4B_INST_Q4_K_M',
+  model: bareProcess.env.QVAC_MODEL || 'QWEN3_5_4B_MULTIMODAL_Q6_K',
   ctxSize: envNumber('QVAC_CTX', 4096),
-  predict: envNumber('QVAC_PREDICT', 160),
+  // Headroom for a whole riddle or poem on the word-game door. Ordinary
+  // replies stay short through the brevity directive, not through this cap.
+  predict: envNumber('QVAC_PREDICT', 320),
   temp: envNumber('QVAC_TEMP', 0.7),
   freeRoam: bareProcess.env.FREE_ROAM === '1'
 }
@@ -182,6 +185,26 @@ function levelsForPlayer (sid) {
   }))
 }
 
+// The player's language, from a query string or a request body. Anything
+// unrecognised plays in English.
+function langOf (value) {
+  const lang = String(value ?? '')
+  return isPlayerLanguage(lang) ? lang : 'en'
+}
+
+// Level text is stored in English and translated on the way out, rather than
+// held as a per-language field, so levels created or renamed in the admin
+// console are covered without a second edit.
+async function localizeLevels (view, lang) {
+  if (lang === 'en') return view
+  return Promise.all(view.map(async (l) => ({
+    ...l,
+    name: await translateForPlayer(l.name, lang),
+    prize: await translateForPlayer(l.prize, lang),
+    hint: l.hint ? await translateForPlayer(l.hint, lang) : l.hint
+  })))
+}
+
 function isUnlocked (sid, levelId) {
   const view = levelsForPlayer(sid).find(l => l.id === levelId)
   return view ? view.unlocked : false
@@ -250,7 +273,15 @@ async function handle (req, res) {
     // ---- public API ----
     if (p === '/api/state' && req.method === 'GET') {
       const sid = ensureSid(req, res)
-      return json(res, 200, { levels: levelsForPlayer(sid), freeRoam: CONFIG.freeRoam, model: modelInfo(), stt: sttInfo() })
+      const lang = langOf(url.searchParams.get('lang'))
+      const levelView = await localizeLevels(levelsForPlayer(sid), lang)
+      return json(res, 200, {
+        levels: levelView,
+        freeRoam: CONFIG.freeRoam,
+        model: modelInfo(),
+        stt: sttInfo(),
+        translation: translationInfo()
+      })
     }
 
     if (p === '/api/chat' && req.method === 'POST') {
@@ -261,7 +292,7 @@ async function handle (req, res) {
 
     if (p === '/api/guess' && req.method === 'POST') {
       const sid = ensureSid(req, res)
-      const { levelId, guess } = await readBody(req)
+      const { levelId, guess, lang: guessLang } = await readBody(req)
       const level = levels.find(l => l.id === levelId)
       if (!level) return json(res, 404, { error: 'no such level' })
       if (!isUnlocked(sid, levelId)) return json(res, 403, { error: 'level locked' })
@@ -283,6 +314,7 @@ async function handle (req, res) {
         const reached = runSummary(sid, levelId)
         resetRun(sid)
         addLog({ kind: 'gameover', levelId, cleared: reached.cleared })
+        reached.name = await translateForPlayer(reached.name, langOf(guessLang))
         return json(res, 200, { correct: false, gameOver: true, reached })
       }
       return json(res, 200, { correct, remaining })
@@ -436,6 +468,7 @@ async function handle (req, res) {
 // budget (live preview).
 async function chat (req, res, sid, body, admin) {
   const { levelId, message } = body
+  const lang = langOf(body.lang)
   const level = levels.find(l => l.id === levelId)
   if (!level) return json(res, 404, { error: 'no such level' })
   if (!admin && !isUnlocked(sid, levelId)) return json(res, 403, { error: 'level locked' })
@@ -461,8 +494,13 @@ async function chat (req, res, sid, body, admin) {
 
   const conv = conversation(sid, levelId)
   try {
-    const result = await runTurn(level, conv, msg, (tok) => write('token', { token: tok }))
-    if (!result.streamed) write('message', { text: result.text })
+    // A reply can only be translated once it is whole, so live streaming is an
+    // English-only luxury. Elsewhere the finished text arrives in one piece.
+    const onToken = lang === 'en' ? (tok) => write('token', { token: tok }) : undefined
+    const result = await runTurn(level, conv, msg, onToken)
+    if (!result.streamed) {
+      write('message', { text: await translateForPlayer(result.text, lang, level.password) })
+    }
     // A player pays for what they said, not for what the guardian said. An
     // input block is their own doing and costs the try; an output or
     // guard-model block means a legal question got a reply the guardian
@@ -472,7 +510,7 @@ async function chat (req, res, sid, body, admin) {
     }
     // Coaching comes after the reply is on screen, so a second completion
     // never delays the answer the player is waiting for.
-    await sendCoaching(write, sid, level, msg, result)
+    await sendCoaching(write, sid, level, msg, result, lang)
     write('done', { blockedAt: result.blockedAt, messagesLeft: left() })
     pushTurn(sid, levelId, msg, result.text)
     addLog({ kind: 'chat', levelId, admin, blockedAt: result.blockedAt })
@@ -487,9 +525,13 @@ async function chat (req, res, sid, body, admin) {
 // On a coached door, writes the hint for the turn that just happened and
 // remembers it. A coach failure is silent: the player keeps the reply and
 // simply gets no hint this turn.
-async function sendCoaching (write, sid, level, message, result) {
+async function sendCoaching (write, sid, level, message, result, lang) {
   const door = doorNumber(level.id)
   if (hintMode(door - 1) !== 'dynamic') return
+  // Announce the hint before writing it. A second completion takes a beat, and
+  // the page can hold a place for it instead of leaving the player wondering
+  // whether the turn is over.
+  write('coaching', {})
   try {
     const previous = hintHistory(sid, level.id).map(h => h.hint)
     const hint = await coachHint(level, door, {
@@ -499,8 +541,10 @@ async function sendCoaching (write, sid, level, message, result) {
       previous
     })
     if (!hint) return
+    // The English hint is what the coach remembers, so the next one still
+    // knows what it has already said whatever language the player reads.
     pushHint(sid, level.id, { message, blockedAt: result.blockedAt, hint })
-    write('hint', { hint })
+    write('hint', { hint: await translateForPlayer(hint, lang, level.password) })
   } catch (err) {
     console.error('[hint] error:', err)
   }
@@ -591,6 +635,7 @@ async function main () {
     if (needsSetup()) console.log('    ⚠  Admin passphrase not set — open /admin to configure it.')
     console.log(`    Model:   ${JSON.stringify(modelInfo())}  freeRoam=${CONFIG.freeRoam}`)
     console.log(`    Voice:   ${JSON.stringify(sttInfo())}`)
+    console.log(`    Langs:   ${JSON.stringify(translationInfo())}`)
     const door = doorStatus()
     console.log(`    Vault:   ${door.mode}${door.url ? ' → ' + door.url : ''}`)
     if (door.mode !== 'off' && CONFIG.freeRoam) {
@@ -602,8 +647,9 @@ async function main () {
   const stop = async () => {
     console.log('\n[server] shutting down...')
     server.close()
-    // Before shutdownModel(), which closes the worker behind both models.
+    // Before shutdownModel(), which closes the worker behind every model.
     await shutdownStt()
+    await shutdownTranslators()
     await shutdownModel()
     bareProcess.exit(0)
   }

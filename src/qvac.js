@@ -19,9 +19,16 @@ const REPEAT_PENALTY = 1.1
 // Small models preamble, restate the question and trail off into disclaimers.
 // Appended per request rather than stored on the level, so it survives admin
 // edits and covers levels created from the console.
+// The two-sentence cap used to apply to every reply, which made the word-game
+// door unplayable: asked for a riddle, the model obeyed the cap by announcing
+// one ("I shall craft a riddle for you") and never writing it. Verse and lists
+// are exempt, and must arrive whole.
 const BREVITY_DIRECTIVE =
-  'Reply in at most two short sentences, under 40 words total. Do not restate ' +
-  'the question, narrate your reasoning, or add disclaimers.'
+  'Keep ordinary replies to at most two short sentences, under 40 words total. Do ' +
+  'not restate the question, narrate your reasoning, or add disclaimers. If the ' +
+  'traveller asks for a poem, riddle, song, rhyme, acrostic, anagram or list, that ' +
+  'limit does not apply: write the finished thing itself, at most twelve short ' +
+  'lines, with no preamble and nothing after it.'
 
 function applyBrevity (history) {
   return history.map(m =>
@@ -65,9 +72,10 @@ export async function initModel (config) {
   // required for Bare's strict resolver (Node tolerates the `.js` variant).
   const { llmPlugin } = await import('@qvac/sdk/llamacpp-completion/plugin')
   const { whisperPlugin } = await import('@qvac/sdk/whispercpp-transcription/plugin')
-  api = sdk.plugins([llmPlugin, whisperPlugin])
+  const { nmtPlugin } = await import('@qvac/sdk/nmtcpp-translation/plugin')
+  api = sdk.plugins([llmPlugin, whisperPlugin, nmtPlugin])
 
-  const name = config.model || 'QWEN3_4B_INST_Q4_K_M'
+  const name = config.model || 'QWEN3_5_4B_MULTIMODAL_Q6_K'
   const modelSrc = sdk[name]
   if (!modelSrc) throw new Error(`Unknown model constant "${name}" — not exported by @qvac/sdk`)
 
@@ -76,7 +84,7 @@ export async function initModel (config) {
     modelSrc,
     // Sampling defaults for every call; per-call generationParams override them.
     // `predict` is the important one — left unset the model generates until EOS
-    // or the context fills, which a 4B-Q4 happily does.
+    // or the context fills, which a 4B-Q6 happily does.
     modelConfig: {
       ctx_size: config.ctxSize || 2048,
       predict: config.predict,
@@ -123,7 +131,7 @@ function trimToSentence (text) {
 // streaming is safe for the level). `generationParams` and `responseFormat`
 // override the load-time sampling defaults for this call only; `brevity` adds
 // the length directive to the system message.
-// Qwen3 hybrid models reason inside <think> blocks by default; REASONING_BUDGET
+// Qwen 3.5 hybrid models reason inside <think> blocks by default; REASONING_BUDGET
 // turns that channel off. captureThinking diverts any reasoning that is still
 // emitted into thinkingDelta events, so it never reaches the player or the
 // guard verdict parsing. Set QVAC_THINKING=1 to let the model reason.

@@ -15,22 +15,32 @@
     <div class="hero"><div class="mark"></div></div>
     <img class="intro-logo" src="/assets/logo.svg" alt="QVAC" />
     <h1 class="intro-title">Vault<em>Guardian</em></h1>
-    <p class="intro-copy">
-      You have been told small models are not smart enough. If that is so, it should be easy to
-      break one. All you have to do is <strong>convince the Guardian to give you the password of
-      each level</strong>, each level you pass will get you a prize. Find all words and the final
-      Vault will open — the prize inside is yours.
-    </p>
-    <p class="intro-copy intro-rules">
-      You get <strong>10 messages per door</strong>. Clear the conversation as often as you like,
-      but a spent message is spent. Run out without the password and the run is over.
-    </p>
-    <button id="startBtn" class="btn big" disabled>Start</button>
+    <p class="intro-copy" data-i18n-html="intro.copy"></p>
+    <p class="intro-copy intro-rules" data-i18n-html="intro.rules"></p>
+
+    <!-- One CTA per language: the flag picks how you play, the label is
+         written in the language it picks. -->
+    <p class="lang-pick" data-i18n="intro.pick"></p>
+    <div class="lang-cta" id="langCta">
+      <button class="btn big lang" data-lang="ca" disabled>
+        <img class="flag" src="/assets/flag-ca.svg" alt="" aria-hidden="true" />
+        <span class="lang-label"></span>
+      </button>
+      <button class="btn big lang" data-lang="es" disabled>
+        <img class="flag" src="/assets/flag-es.svg" alt="" aria-hidden="true" />
+        <span class="lang-label"></span>
+      </button>
+      <button class="btn big lang" data-lang="en" disabled>
+        <img class="flag" src="/assets/flag-gb.svg" alt="" aria-hidden="true" />
+        <span class="lang-label"></span>
+      </button>
+    </div>
+
     <div class="intro-meta">
       <span id="introPill" class="pill">local model</span>
-      <a class="pill" href="/admin">admin →</a>
+      <a class="pill" href="/admin" data-i18n="pill.admin">admin →</a>
     </div>
-    <p class="footer-note">Runs fully offline via QVAC on the Bare runtime. The password never leaves the server.</p>
+    <p class="footer-note" data-i18n="intro.footer"></p>
   </div>
 </section>
 
@@ -42,12 +52,12 @@
         <img class="intro-logo" src="/assets/logo.svg" alt="QVAC" style="height:16px;margin:0" />
         <div>
           <h1>VaultGuardian</h1>
-          <p>Convince the Guardian to hand over the word.</p>
+          <p data-i18n="header.tagline"></p>
         </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <span id="modelPill" class="pill">local model</span>
-        <a class="pill" href="/admin">admin →</a>
+        <a class="pill" href="/admin" data-i18n="pill.admin">admin →</a>
       </div>
     </header>
   </div>
@@ -57,12 +67,12 @@
       <span class="count" id="levelCount">Level 1 / 5</span>
       <span class="lname" id="levelName">—</span>
       <span class="spacer"></span>
-      <span class="tries" id="tries"><b id="triesLeft">10</b> messages left</span>
+      <span class="tries" id="tries"><b id="triesLeft">10</b> <span data-i18n="level.tries"></span></span>
       <div class="pips" id="pips"></div>
     </div>
 
     <p id="levelHint" class="levelhint hidden">
-      <span class="lbl">Hint</span>
+      <span class="lbl" data-i18n="level.hint"></span>
       <span id="levelHintText"></span>
     </p>
 
@@ -71,32 +81,29 @@
     </div>
 
     <div class="composer">
-      <input id="chatInput" placeholder="Say something to the guardian…" autocomplete="off" disabled />
-      <button id="micBtn" class="btn ghost icon hidden" title="Speak instead of typing" aria-label="Speak instead of typing" disabled>
+      <input id="chatInput" data-i18n-placeholder="chat.placeholder" autocomplete="off" disabled />
+      <button id="micBtn" class="btn ghost icon hidden" data-i18n-title="chat.mic" aria-label="" disabled>
         <span class="mic-icon" aria-hidden="true"></span>
       </button>
-      <button id="sendBtn" class="btn" disabled>Send</button>
-      <button id="resetBtn" class="btn ghost" title="Clear the conversation" disabled>Reset</button>
+      <button id="sendBtn" class="btn" data-i18n="chat.send" disabled></button>
+      <button id="resetBtn" class="btn ghost" data-i18n="chat.reset" data-i18n-title="chat.resetTitle" disabled></button>
     </div>
 
     <div class="guessbar">
-      <span class="lbl">Submit password</span>
-      <input id="guessInput" placeholder="your guess" autocomplete="off" disabled />
-      <button id="guessBtn" class="btn gold" disabled>Submit</button>
+      <span class="lbl" data-i18n="guess.label"></span>
+      <input id="guessInput" data-i18n-placeholder="guess.placeholder" autocomplete="off" disabled />
+      <button id="guessBtn" class="btn gold" data-i18n="guess.submit" disabled></button>
     </div>
 
     <div class="vault">
-      <span class="lbl">Vault words</span>
+      <span class="lbl" data-i18n="vault.words"></span>
       <div id="words" class="pips" style="gap:8px"></div>
     </div>
 
     <div id="sttbar" class="sttbar hidden">
-      <label class="lbl" for="sttLang">Voice input</label>
-      <select id="sttLang" disabled>
-        <option value="auto">Auto-detect</option>
-        <option value="en">English</option>
-        <option value="es">Español</option>
-      </select>
+      <label class="lbl" for="sttLang" data-i18n="stt.label"></label>
+      <!-- options are built from the languages the server reports -->
+      <select id="sttLang" disabled></select>
       <span id="sttStatus" class="sttnote"></span>
     </div>
   </div>
@@ -111,20 +118,21 @@
   <div class="modal-backdrop" id="prizeBackdrop"></div>
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="prizeTitle">
     <div class="modal-sigil"></div>
-    <h2 class="modal-title" id="prizeTitle">Door cleared</h2>
+    <h2 class="modal-title" id="prizeTitle"></h2>
     <p class="modal-copy" id="prizeText"></p>
-    <button id="prizeBtn" class="btn big">Continue</button>
+    <button id="prizeBtn" class="btn big"></button>
   </div>
 </div>
 <div id="overModal" class="modal hidden">
   <div class="modal-backdrop" id="overBackdrop"></div>
   <div class="modal-card over" role="dialog" aria-modal="true" aria-labelledby="overTitle">
-    <h2 class="modal-title" id="overTitle">Game over</h2>
+    <h2 class="modal-title" id="overTitle" data-i18n="over.title"></h2>
     <p class="modal-copy" id="overText"></p>
-    <button id="overBtn" class="btn big">Back to the start</button>
+    <button id="overBtn" class="btn big" data-i18n="over.back"></button>
   </div>
 </div>
 
+<script src="/i18n.js"></script>
 <script src="/confetti.js"></script>
 <script src="/app.js"></script>
 </body>

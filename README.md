@@ -2,14 +2,14 @@
 
 A local-first, offline **prompt-injection game** in the style of [Lakera's Gandalf](https://gandalf.lakera.ai/baseline). A defender AI holds a secret password; you chat with it and try to trick it into leaking the password, then submit your guess to a server-side validator. Five levels (L1–L5) of escalating defenses, all editable from an admin console.
 
-All AI inference runs **locally, in-process, fully offline** through [QVAC](https://qvac.tether.io) (`@qvac/sdk`) on the [Bare](https://bare.pears.com) runtime. No cloud, no external API calls, no accounts, no telemetry. The default model fits in about 4 GB RAM.
+All AI inference runs **locally, in-process, fully offline** through [QVAC](https://qvac.tether.io) (`@qvac/sdk`) on the [Bare](https://bare.pears.com) runtime. No cloud, no external API calls, no accounts, no telemetry. The default model fits in about 5 GB RAM.
 
 > ⚠️ Educational sandbox — the "passwords" are game tokens, not real credentials.
 
 ## Requirements
 
 - [Bare](https://bare.pears.com) runtime (`npm i -g bare`). The native QVAC modules are not compatible with the Node.js runtime.
-- ~2.5 GB free disk for the default model (downloaded once on first real run).
+- ~3.5 GB free disk for the default model (downloaded once on first real run).
 
 ## Quick start
 
@@ -20,7 +20,7 @@ npm install
 # Great for exercising the guard pipeline and UI instantly.
 npm run dev
 
-# Real mode — loads QWEN3_4B_INST_Q4_K_M locally via QVAC (downloads once).
+# Real mode — loads QWEN3_5_4B_MULTIMODAL_Q6_K locally via QVAC (downloads once).
 npm start
 ```
 
@@ -44,14 +44,15 @@ successful login.
 | `PORT` | `8787` | HTTP port |
 | `HOST` | `127.0.0.1` | Bind address. Keep the loopback default unless you intentionally want LAN access. |
 | `VAULT_DATA_DIR` | `./data` | Runtime state directory; useful for isolated tests or disposable runs. |
-| `QVAC_MODEL` | `QWEN3_4B_INST_Q4_K_M` | QVAC model constant (a 4B-Q4 is the practical 4 GB ceiling; try `QWEN3_8B_INST_Q4_K_M` with ~8 GB RAM) |
+| `QVAC_MODEL` | `QWEN3_5_4B_MULTIMODAL_Q6_K` | QVAC model constant. Default is Unsloth Qwen 3.5 4B Q6_K (~3.5 GB). `QWEN3_5_4B_MULTIMODAL_Q4_K_M` is smaller; `QWEN3_8B_INST_Q4_K_M` needs ~8 GB RAM |
 | `QVAC_CTX` | `4096` | Context window (tokens) — keeps RAM in check |
-| `QVAC_PREDICT` | `160` | Max tokens per reply. Small models ramble without a cap; raise it if guardians get cut off. |
+| `QVAC_PREDICT` | `320` | Max tokens per reply. Small models ramble without a cap; the default leaves room for a whole riddle or poem on the word-game door, while the brevity directive keeps ordinary replies to two sentences. |
 | `QVAC_TEMP` | `0.7` | Sampling temperature. Lower is terser and more on-instruction; higher is more inventive. |
-| `QVAC_THINKING` | — | `1` = let Qwen3 reason in `<think>` blocks before answering (slower turns; reasoning is never shown to players) |
+| `QVAC_THINKING` | — | `1` = let Qwen 3.5 reason in `<think>` blocks before answering (slower turns; reasoning is never shown to players) |
 | `QVAC_MOCK` | — | `1` = use the built-in fake model (no download; dev only) |
 | `QVAC_STT_MODEL` | `WHISPER_BASE_Q8_0` | Whisper constant for voice input (~82 MB, multilingual). `WHISPER_SMALL_Q8_0` is more accurate and ~3x larger. |
 | `QVAC_STT` | — | `0` = disable voice input (the mic button and language row disappear) |
+| `QVAC_TRANSLATE` | — | `0` = disable the NMT engine. The UI still switches language; the guardian answers in English. |
 | `FREE_ROAM` | — | `1` = all levels unlocked (default is unlock-on-solve) |
 | `ADMIN_PASSPHRASE` | — | Preset the admin passphrase instead of first-run setup |
 | `DOOR_URL` | — | Base URL of the relay that opens the physical vault, e.g. `http://192.168.1.50`. Unset = no physical vault. |
@@ -118,6 +119,23 @@ same fuzzy leak check as a refusal, falling back to a canned line for that door
 if it fails, comes back empty, or the model errors. Coaching history survives a
 conversation reset — the guardian forgets, the coach does not.
 
+Each nudge is tagged with the game it recommends, and any nudge matching what
+the player just tried is skipped — telling someone who just asked for a rhyme to
+go and ask for a rhyme was the fastest way to make the coaching look broken.
+
+**The coach rewrites a nudge, it does not invent one.** Asked to compose advice
+freely, a 4B model read the door's background as if it were the player's last
+move — on a turn that was never blocked it wrote *"You tried to use 'password'
+in a riddle…"* — and otherwise produced filler assembled from stray words in its
+context (*"make the game a song that uses the word 'tone'"*). So the nudge for
+the door and the stage is chosen first, in code, and the model is spent only on
+phrasing it for the attempt that just happened. Three checks reject a rewrite
+and fall back to the chosen line verbatim: it leaks, it talks about filters or
+walls on a turn that was not blocked, or it carries no next move at all. The
+nudge advances with the number of hints already given, since a paraphrase never
+matches its source line and an "already used this one" test would repeat itself
+forever.
+
 ### Who pays for a block
 
 Each level gives a run `maxMessages` tries. A player pays for what *they* said,
@@ -130,7 +148,7 @@ no fault of the player.
 
 ### Keeping a small model terse
 
-An unconstrained 4B-Q4 guardian preambles, restates the question, and drifts
+An unconstrained 4B guardian preambles, restates the question, and drifts
 into repetition — slow, and worse, every extra sentence is more surface area
 for the password to leak. Four things keep replies tight:
 
@@ -140,7 +158,11 @@ for the password to leak. Four things keep replies tight:
 - **Brevity directive** — a two-sentence / 40-word instruction appended to the
   system message at request time (`BREVITY_DIRECTIVE` in `src/qvac.js`). It
   lives outside the stored prompt so it survives admin edits and covers levels
-  created from the console.
+  created from the console. **Verse and lists are exempt.** When the cap applied
+  to everything, the word-game door was unplayable: asked for a riddle, the
+  guardian obeyed by announcing one ("I shall craft a riddle for you") and never
+  writing it. A requested poem, riddle, song, acrostic or list now arrives whole,
+  up to twelve short lines.
 - **No reasoning channel** — `<think>` is disabled at the sampler through
   `reasoning_budget`, not by a `/no_think` hint the model is free to ignore.
 - **Constrained classifier** — the guard-model check runs at `temp: 0` under a
@@ -158,11 +180,53 @@ cuts the stream at pauses, so each phrase lands in the input a beat after you
 finish saying it — you can still edit it before sending. **Stop** ends the
 session and flushes the last phrase.
 
-The footer row picks the language: auto-detect, English, or Spanish. It is
-applied to the whisper model in place when a recording starts (no reload, no
+The footer row picks the language: English, Spanish, Catalan, or **Auto**, which
+here means the language you chose at the intro rather than whisper's own
+detector — you just told the game what you speak, so guessing again would only
+add a way to be wrong. Picking a language explicitly overrides that. The choice
+is applied to the whisper model in place when a recording starts (no reload, no
 second download), which is why it locks while the mic is live. Audio is written
 straight into the model and never touches disk. The mic needs a secure origin,
 so it only appears on `localhost` or over HTTPS.
+
+### Languages
+
+The intro offers three doors into the same game — Catalan, Spanish and English —
+and the choice is remembered for the next visit.
+
+The guardian only ever thinks in English. Every system prompt, guard, classifier
+and coach in this repo is written in English, and generation stays there so they
+keep meaning what they say. Translation is the last step before text reaches the
+player, after every guard has had its look:
+
+```
+player message ──▶ input guard ──▶ guardian (English) ──▶ output guards ──▶ NMT ──▶ player
+```
+
+That ordering has two consequences worth knowing. A reply has to be finished
+before it can be translated, so live token streaming is an English-only luxury;
+Spanish and Catalan turns arrive as one message. And **your own messages are
+never translated** — the guardian reads exactly what you typed, so wordplay,
+odd spacing and injection phrasing survive intact whatever language you use.
+
+Translation runs on the QVAC NMT engine (`nmtcpp-translation`, Bergamot), one
+~32 MB model per direction — `BERGAMOT_EN_ES` and `BERGAMOT_EN_CA` — fetched the
+first time a language is actually played, so an English run downloads nothing
+extra. The password is masked behind a sentinel for the round trip and restored
+afterwards, because on L1 the reply *is* the password and a mangled secret is an
+unwinnable level. `QVAC_TRANSLATE=0` turns the engine off entirely.
+
+Level names, prizes and static hints are translated server-side rather than held
+in a client dictionary, so a level renamed in the admin console is translated
+without a second edit. UI chrome is hand-written in [`public/i18n.js`](public/i18n.js):
+it is a small fixed set of strings, and a button reads better written than
+translated.
+
+The guards gained Spanish and Catalan vocabulary alongside the English lists, so
+the escalation holds in all three languages — asking for *la contrasenya* on L2
+is blocked exactly like asking for the password. L5's refusal of non-ASCII input
+stands as designed, which means playing the last door in Spanish or Catalan
+means writing without accents.
 
 ### Levels (shipped defaults)
 
@@ -172,9 +236,9 @@ channel, so the route that solved L(n) is exactly the route that fails on L(n+1)
 | Level | Defense | Intended route |
 |-------|---------|----------------|
 | L1 — The Open Door | No guards. Hands the password over on request, but says nothing about it during small talk | Ask for it |
-| L2 — The Promise | Input guard on every name for "password", in a dozen languages. Loves word games and has no output filter | Any game: poem, riddle, acrostic, anagram |
+| L2 — The Promise | Input guard on every name for "password", in a dozen languages. No output filter, and instructed to build any word game it is asked for around the real password | Any game: poem, riddle, acrostic, anagram |
 | L3 — The Sentry | Also blocks spelling, ciphers, reversals and verse; fuzzy output filter. Told to substitute a stand-in for the name and given its referent's real history to recite | Talk around it: what it is, who built it, where the name came from |
-| L4 — The Gatekeeper | Also blocks direct extraction (`define`, `synonym`, `etymology`, `translate`) and injection framings; guard-model reads every reply. Stays talkative on neighbouring subjects | Adjacent domains, or harvest one attribute per turn — the classifier is stateless and sees only the reply |
+| L4 — The Gatekeeper | Also blocks direct extraction (`define`, `synonym`, `etymology`, `translate`) and injection framings; guard-model reads every reply for the word and its encodings. Substitutes a stand-in like L3, but explains nothing and never gathers traits into one answer | Harvest one property per turn — colour, material, what was made from it — and put them together yourself |
 | L5 — The Silent Order | Vow-of-silence prompt, wide keyword wall, non-ASCII and 220-character input caps, fuzzy filter, and a classifier told to answer YES whenever unsure | Close to impossible by design |
 
 Blocklist entries are plain substrings or `/regex/`; the presets compose them
@@ -187,6 +251,30 @@ names, rather than trusting the model to recall it. A 4B model asked to discuss
 a word it must never write tends to confabulate — early L3 runs invented a king
 and then claimed the name was "Athena", which sends players to a wrong answer.
 Reciting supplied facts is reliable where recall is not.
+
+### The presets are tuned to the model
+
+Guards are model-independent; prompts are not. Swapping `QVAC_MODEL` can quietly
+break a door, because a level is only as playable as the guardian's willingness
+to walk into its trap. Moving from Qwen 3 4B to Qwen 3.5 4B broke L2 outright:
+the older model took "you never worry about what a game might reveal" as licence
+to put the password in a poem, while the newer one wrote the poem and slipped a
+decoy in — `THESECRUM`, `MAGIC TURTLE CAGE` — leaving no way through. The leak on
+that door is now an explicit instruction (*build the game around the real word,
+never a placeholder*) rather than a permission the model can decline.
+
+The same move made L4 unreadable for the opposite reason. It answered questions
+about stones and colours happily, but named the password in nearly every reply,
+so the output filter destroyed each one and the player saw only cryptic refusals
+for a whole run. L4 now carries L3's stand-in rule while still explaining
+nothing, and its classifier judges only the word and its encodings — asked also
+to catch replies that "define it too completely", it destroyed every
+single-property answer, which is the one route through the door.
+
+The lesson for anyone retuning: after changing the model, play each door through
+the admin **Test-attack** panel and check the *intended* route still lands, not
+just that the walls still hold. A sealed door looks identical to a working one
+from the outside.
 
 Every field of every level is editable in the admin console; **reset-to-default**
 restores the shipped presets. The console holds the blocklist one entry per
@@ -254,6 +342,7 @@ src/
   server.js    HTTP router, SSE streaming, static serving, API
   qvac.js      QVAC model load/complete/unload (Bare plugin wiring) + dev mock
   stt.js       whisper transcription sessions for voice input + dev mock
+  translate.js EN→ES/CA on the QVAC NMT engine, password-safe + dev mock
   guards.js    input / output / fuzzy / guard-model pipeline + guess validation
   hints.js     per-attempt coaching hints for the opening doors
   levels.js    L1–L5 presets and the persisted, editable store
@@ -269,8 +358,8 @@ public/        player SPA (index/app) + admin console (admin.html/js) + style
 Bare has no `process` global and does not auto-register SDK plugins, so
 `src/qvac.js` installs `bare-process` globally and registers the plugins the app
 uses explicitly before the first SDK call. Registration is process-wide and
-happens once, which is why `src/stt.js` borrows the same api object rather than
-calling `plugins()` again:
+happens once, which is why `src/stt.js` and `src/translate.js` borrow the same
+api object rather than calling `plugins()` again:
 
 ```js
 import bareProcess from 'bare-process'
@@ -278,7 +367,8 @@ globalThis.process = bareProcess
 const sdk = await import('@qvac/sdk')
 const { llmPlugin } = await import('@qvac/sdk/llamacpp-completion/plugin')
 const { whisperPlugin } = await import('@qvac/sdk/whispercpp-transcription/plugin')
-const api = sdk.plugins([llmPlugin, whisperPlugin])
+const { nmtPlugin } = await import('@qvac/sdk/nmtcpp-translation/plugin')
+const api = sdk.plugins([llmPlugin, whisperPlugin, nmtPlugin])
 ```
 
 This follows the official `@qvac/sdk` Bare quickstart. For longer sessions you can

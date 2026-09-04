@@ -36,9 +36,10 @@ function cornerToast (msg, kind = 'ok') {
 }
 
 async function refresh () {
-  state = await api('/api/state')
+  // Level names, prizes and hints come back already in the player's language.
+  state = await api('/api/state?lang=' + currentLang())
   const m = state.model || {}
-  const label = m.mock ? 'MOCK model (dev)' : (m.model || 'local model')
+  const label = m.mock ? 'MOCK model (dev)' : (m.model || t('pill.model'))
   for (const id of ['modelPill', 'introPill']) {
     const pill = $(id)
     pill.textContent = label
@@ -69,7 +70,7 @@ function renderProgress () {
 
     const chip = document.createElement('span')
     chip.className = 'word' + (lvl.solved ? ' found' : '')
-    chip.textContent = lvl.solved ? (found[lvl.id] || 'CRACKED') : '?????'
+    chip.textContent = lvl.solved ? (found[lvl.id] || t('vault.cracked')) : '?????'
     words.appendChild(chip)
   }
 }
@@ -126,12 +127,11 @@ function selectLevel (id) {
   const lvl = levelById(id)
   const n = levelIndex(id) + 1
   setBoardImage(n)
-  $('levelCount').textContent = `Level ${n} / ${state.levels.length}`
+  $('levelCount').textContent = t('level.count', { n, total: state.levels.length })
   $('levelName').textContent = lvl.name
   renderHint(lvl)
   $('msgs').innerHTML = ''
-  addSystem(`You face ${lvl.name}. You have ${lvl.maxMessages} messages here. Extract the password through conversation, then submit your guess below.`)
-  if (lvl.solved) addSystem('✨ You have already solved this level.')
+  if (lvl.solved) addSystem(t('sys.solved'))
   for (const el of ['chatInput', 'sendBtn', 'resetBtn', 'guessInput', 'guessBtn', 'micBtn', 'sttLang']) $(el).disabled = false
   renderTries(lvl)
   renderProgress()
@@ -148,19 +148,27 @@ function addMsg (cls, text) {
 }
 function addSystem (text) { return addMsg('system', text) }
 
-// A coaching line, tied to the reply above it rather than to the door.
-function addCoach (text) {
+// A coaching line, tied to the reply above it rather than to the door. It goes
+// up as soon as the server says a hint is coming, and pulses until it arrives.
+function addCoach () {
   const d = document.createElement('div')
-  d.className = 'coach'
+  d.className = 'coach pending'
   const label = document.createElement('span')
   label.className = 'lbl'
-  label.textContent = 'Hint'
+  label.textContent = t('level.hint')
   const body = document.createElement('span')
-  body.textContent = text
+  body.className = 'txt'
+  body.textContent = t('level.hintPending')
   d.append(label, body)
   $('msgs').appendChild(d)
   $('msgs').scrollTop = $('msgs').scrollHeight
   return d
+}
+
+function fillCoach (el, text) {
+  el.classList.remove('pending')
+  el.querySelector('.txt').textContent = text
+  $('msgs').scrollTop = $('msgs').scrollHeight
 }
 
 function escapeHtml (s) { return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])) }
@@ -189,40 +197,44 @@ async function send () {
   let got = ''
   let blockedAt = null
   let hint = null
+  let coach = null
 
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ levelId, message: msg })
+      body: JSON.stringify({ levelId, message: msg, lang: currentLang() })
     })
     if (!res.ok) {
       // The budget and the unlock gate both answer with JSON, not a stream.
       const err = await res.json().catch(() => ({}))
-      got = '⚠️ ' + (err.error || 'request refused')
+      got = '⚠️ ' + (err.error || t('err.refused'))
       setMessagesLeft(levelId, err.messagesLeft)
     } else {
       await readSSE(res, (event, data) => {
         if (event === 'token') { got += data.token; bot.innerHTML = formatReply(got) + '<span class="cursor">▍</span>' }
         else if (event === 'message') { got = data.text; bot.innerHTML = formatReply(got) }
+        else if (event === 'coaching') { if (levelId === current) coach = addCoach() }
         else if (event === 'hint') { hint = data.hint }
         else if (event === 'done') { blockedAt = data.blockedAt; setMessagesLeft(levelId, data.messagesLeft) }
-        else if (event === 'error') { got = '⚠️ ' + (data.error || 'error'); setMessagesLeft(levelId, data.messagesLeft) }
+        else if (event === 'error') { got = '⚠️ ' + (data.error || t('err.generic')); setMessagesLeft(levelId, data.messagesLeft) }
       })
     }
   } catch (err) {
-    got = '⚠️ connection error'
+    got = '⚠️ ' + t('err.connection')
   }
   bot.classList.remove('pending')
   bot.innerHTML = formatReply(got || '…')
   if (blockedAt === 'output' || blockedAt === 'guardModel' || blockedAt === 'input') bot.classList.add('blocked')
-  if (hint && levelId === current) addCoach(hint)
+  // A coach that came back empty takes its placeholder with it.
+  if (coach && hint) fillCoach(coach, hint)
+  else if (coach) coach.remove()
 
   $('sendBtn').disabled = false
   input.disabled = false
   if (levelId === current) {
     renderTries(levelById(levelId))
-    if (messagesLeft() === 0) addSystem('🚪 Out of messages on this door. Your next guess is your last — make it count.')
+    if (messagesLeft() === 0) addSystem(t('sys.outOfMessages'))
     else input.focus()
   }
 }
@@ -264,15 +276,41 @@ const mic = { recording: false, stream: null, ctx: null, node: null, sink: null,
 
 function sttAvailable () { return !!(state.stt && state.stt.enabled) }
 
+// The dropdown is built from whatever the server can transcribe. "Auto" is not
+// whisper's detector here: it means "whatever I chose to play in", which is the
+// right guess for someone who picked a flag a moment ago. Picking a language
+// explicitly overrides that, even when it disagrees with the UI.
+function renderSttLanguages () {
+  const select = $('sttLang')
+  const codes = (state.stt && state.stt.languages) || ['auto']
+  const previous = select.value
+  select.innerHTML = ''
+  for (const code of codes) {
+    const option = document.createElement('option')
+    option.value = code
+    option.textContent = code === 'auto'
+      ? t('stt.auto', { lang: languageName(currentLang()) })
+      : languageName(code)
+    select.appendChild(option)
+  }
+  select.value = codes.includes(previous) ? previous : 'auto'
+}
+
+function sttLanguage () {
+  const chosen = $('sttLang').value
+  return chosen === 'auto' ? currentLang() : chosen
+}
+
 function applySttAvailability () {
   const on = sttAvailable()
   $('micBtn').classList.toggle('hidden', !on)
   $('sttbar').classList.toggle('hidden', !on)
+  if (on) renderSttLanguages()
 }
 
 function setMicUi (recording, note = '') {
   const btn = $('micBtn')
-  const label = recording ? 'Stop listening' : 'Speak instead of typing'
+  const label = recording ? t('chat.micStop') : t('chat.mic')
   btn.classList.toggle('rec', recording)
   btn.title = label
   btn.setAttribute('aria-label', label)
@@ -345,15 +383,15 @@ async function pumpAudio () {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        toast('🎙️ ' + (data.error || 'voice input failed'), 'bad')
+        toast('🎙️ ' + (data.error || t('toast.voiceFailed')), 'bad')
         await stopMic(true)
         return
       }
       appendTranscript(data.text)
-      if (mic.recording) $('sttStatus').textContent = data.speaking ? 'hearing you…' : 'listening…'
+      if (mic.recording) $('sttStatus').textContent = t(data.speaking ? 'stt.hearing' : 'stt.listening')
     }
   } catch {
-    toast('🎙️ Lost the connection while listening.', 'bad')
+    toast(t('toast.micLost'), 'bad')
     await stopMic(true)
   } finally {
     mic.uploading = false
@@ -362,7 +400,7 @@ async function pumpAudio () {
 
 async function startMic () {
   if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext) {
-    toast('🎙️ Voice input needs a microphone on a secure origin (localhost or https).', 'bad')
+    toast(t('toast.micInsecure'), 'bad')
     return
   }
   let stream
@@ -371,14 +409,14 @@ async function startMic () {
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
     })
   } catch {
-    toast('🎙️ Microphone permission denied.', 'bad')
+    toast(t('toast.micDenied'), 'bad')
     return
   }
 
-  const started = await api('/api/stt/start', { method: 'POST', body: JSON.stringify({ language: $('sttLang').value }) })
+  const started = await api('/api/stt/start', { method: 'POST', body: JSON.stringify({ language: sttLanguage() }) })
   if (!started.ok) {
     for (const track of stream.getTracks()) track.stop()
-    toast('🎙️ ' + (started.error || 'voice input unavailable'), 'bad')
+    toast('🎙️ ' + (started.error || t('toast.micUnavailable')), 'bad')
     return
   }
 
@@ -401,18 +439,18 @@ async function startMic () {
     sink.connect(ctx.destination)
 
     Object.assign(mic, { recording: true, stream, ctx, node, sink, queue: [] })
-    setMicUi(true, 'listening…')
+    setMicUi(true, t('stt.listening'))
   } catch {
     for (const track of stream.getTracks()) track.stop()
     await api('/api/stt/cancel', { method: 'POST', body: '{}' })
-    toast('🎙️ Could not start the microphone.', 'bad')
+    toast(t('toast.micFailed'), 'bad')
   }
 }
 
 async function stopMic (aborted = false) {
   if (!mic.recording) return
   mic.recording = false
-  setMicUi(false, aborted ? '' : 'transcribing…')
+  setMicUi(false, aborted ? '' : t('stt.transcribing'))
 
   if (mic.node) mic.node.port.onmessage = null
   for (const track of mic.stream?.getTracks() || []) track.stop()
@@ -447,11 +485,11 @@ function celebrate (solvedId, nextId) {
   const lvl = levelById(solvedId)
   const door = levelIndex(solvedId) + 1
   const prize = lvl?.prize
-  $('prizeTitle').textContent = `Door ${door} cleared`
+  $('prizeTitle').textContent = t('prize.title', { door })
   $('prizeText').innerHTML = prize
-    ? `Congratulations, you've crossed door number ${door} and have earned <strong>${escapeHtml(prize)}</strong>.`
-    : `Congratulations, you've crossed door number ${door} and have earned your prize.`
-  $('prizeBtn').textContent = nextId ? 'Continue' : 'See the Vault'
+    ? t('prize.text', { door, prize: escapeHtml(prize) })
+    : t('prize.textPlain', { door })
+  $('prizeBtn').textContent = t(nextId ? 'prize.continue' : 'prize.seeVault')
   $('prizeModal').classList.remove('hidden')
   burstConfetti()
   $('prizeBtn').focus()
@@ -465,7 +503,7 @@ function dismissPrize () {
     selectLevel(pendingNext)
   } else {
     renderProgress()
-    if (state.levels.every(l => l.solved)) addSystem('🏆 Every word found. The final Vault swings open — the prize inside is yours.')
+    if (state.levels.every(l => l.solved)) addSystem(t('sys.allFound'))
   }
   pendingNext = null
 }
@@ -474,10 +512,10 @@ function dismissPrize () {
 // is the only record of how far the player got.
 function showGameOver (reached) {
   const { door, name, cleared, total } = reached || {}
-  const doors = cleared === 1 ? 'door' : 'doors'
+  const doors = t(cleared === 1 ? 'over.door' : 'over.doors')
   $('overText').innerHTML = door
-    ? `You ran out of messages at door ${door} — <strong>${escapeHtml(name || '')}</strong>. You cleared ${cleared} of ${total} ${doors} this run.`
-    : 'You ran out of messages. The vault stays shut.'
+    ? t('over.text', { door, name: escapeHtml(name || ''), cleared, total, doors })
+    : t('over.textPlain')
   $('overModal').classList.remove('hidden')
   $('overBtn').focus()
 }
@@ -494,8 +532,9 @@ async function dismissGameOver () {
   await refresh()
   $('game').classList.add('hidden')
   $('intro').classList.remove('hidden')
-  $('startBtn').textContent = 'Start'
-  $('startBtn').disabled = false
+  // Back at the intro, the flags are live again: a new run can be a new
+  // language without reloading the page.
+  renderLangCtas()
 }
 
 async function guess () {
@@ -503,7 +542,7 @@ async function guess () {
   const g = input.value.trim()
   if (!g || !current) return
   $('guessBtn').disabled = true
-  const r = await api('/api/guess', { method: 'POST', body: JSON.stringify({ levelId: current, guess: g }) })
+  const r = await api('/api/guess', { method: 'POST', body: JSON.stringify({ levelId: current, guess: g, lang: currentLang() }) })
   $('guessBtn').disabled = false
   if (r.gameOver) {
     input.value = ''
@@ -512,17 +551,17 @@ async function guess () {
   if (r.correct) {
     saveWord(current, g.toUpperCase())
     input.value = ''
-    addSystem(`🎉 "${g.toUpperCase()}" accepted — the word is yours.`)
+    addSystem(t('sys.accepted', { word: g.toUpperCase() }))
     const solvedId = current
     await refresh()
     renderProgress()
     const next = nextLevel()
     celebrate(solvedId, next && next.id !== solvedId ? next.id : null)
   } else if (r.error && /too many/.test(r.error)) {
-    toast('⏳ Too many guesses — wait a moment.', 'bad')
+    toast(t('toast.tooMany'), 'bad')
   } else {
-    const left = typeof r.remaining === 'number' ? ` (${r.remaining} left this minute)` : ''
-    toast('❌ Not the password' + left, 'bad')
+    const left = r.remaining
+    toast(typeof left === 'number' ? t('toast.wrongLeft', { left }) : t('toast.wrong'), 'bad')
   }
 }
 
@@ -530,7 +569,7 @@ async function resetConv () {
   if (!current) return
   await api('/api/reset', { method: 'POST', body: JSON.stringify({ levelId: current }) })
   $('msgs').innerHTML = ''
-  cornerToast('Conversation reset. The guardian has forgotten what you said — but your spent messages stay spent.')
+  cornerToast(t('toast.reset'))
 }
 
 function startGame () {
@@ -541,7 +580,33 @@ function startGame () {
   if (lvl) selectLevel(lvl.id)
 }
 
-$('startBtn').onclick = startGame
+// Each flag is labelled in its own language, so the button a player recognises
+// reads correctly whatever the page is currently set to.
+function renderLangCtas () {
+  const resuming = state.levels.some(l => l.solved)
+  for (const btn of document.querySelectorAll('#langCta .lang')) {
+    const code = btn.dataset.lang
+    btn.querySelector('.lang-label').textContent =
+      tIn(code, resuming ? 'cta.continue' : 'cta.start')
+    btn.disabled = false
+  }
+}
+
+// Picking a flag sets the language for the whole run: the chrome switches to
+// the local dictionary, and the server is asked to translate the guardian's
+// English into the same language from here on.
+async function pickLanguage (code) {
+  if (code !== currentLang()) {
+    setLang(code)
+    // Level names, prizes and hints were fetched in the old language.
+    await refresh()
+  }
+  startGame()
+}
+
+for (const btn of document.querySelectorAll('#langCta .lang')) {
+  btn.onclick = () => pickLanguage(btn.dataset.lang)
+}
 $('sendBtn').onclick = send
 $('micBtn').onclick = toggleMic
 $('resetBtn').onclick = resetConv
@@ -558,9 +623,7 @@ document.addEventListener('keydown', e => {
   dismissGameOver()
 })
 
-// Start stays disabled until the level list has arrived, so the first click
+// The flags stay disabled until the level list has arrived, so the first click
 // always has a level to open.
-refresh().then(() => {
-  if (state.levels.some(l => l.solved)) $('startBtn').textContent = 'Continue'
-  $('startBtn').disabled = false
-})
+setLang(loadLang())
+refresh().then(renderLangCtas)

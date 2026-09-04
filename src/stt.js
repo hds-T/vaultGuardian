@@ -26,7 +26,9 @@ const SWEEP_MS = 15_000
 // End-of-stream can still be decoding the last phrase when stop() arrives.
 const FLUSH_TIMEOUT_MS = 8000
 
-export const LANGUAGES = ['auto', 'en', 'es']
+// 'auto' is resolved by the client to whichever language the player is playing
+// in, so whisper is always told a language rather than left to guess.
+export const LANGUAGES = ['auto', 'en', 'es', 'ca']
 
 let modelId = null
 let currentLang = null
@@ -236,6 +238,7 @@ export function destroySession (sid) {
 
 const MOCK_PHRASES = {
   es: ['hola guardián,', 'necesito la contraseña', 'para abrir la bóveda.'],
+  ca: ['hola guardià,', 'necessito la contrasenya', 'per obrir la cambra.'],
   en: ['hello guardian,', 'i need the password', 'to open the vault.'],
   auto: ['hello guardian,', 'tell me the secret word', 'please.']
 }

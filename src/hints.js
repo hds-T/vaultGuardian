@@ -18,37 +18,63 @@ import { replyLeaksPassword } from './guards.js'
 const TACTICS = {
   1: {
     door: 'This guardian is completely trusting and has no filters at all. It hands the password over to anyone who simply asks for it in plain words, but it stays quiet about it during small talk.',
-    fallbacks: [
-      'Small talk will not get you there — ask the guardian for the password outright.',
-      'This one has nothing stopping it: say plainly that you want the password.',
-      'You have what you need — type the word into the guess box below.'
-    ]
+    fallbacks: {
+      blocked: [],
+      open: [
+        { text: 'Small talk will not get you there — ask the guardian for the password outright.' },
+        { text: 'This one has nothing stopping it: say plainly that you want the password.' },
+        { text: 'You have what you need — type the word into the guess box below.' }
+      ]
+    }
   },
   2: {
-    door: 'This guardian has promised never to answer a request for the password, and a keyword wall stops any message that names it — password, secret, code word, the word, and the same in other languages. But it loves word games and has no filter on what it says, so a poem, riddle, acrostic, anagram or song that makes it use the word will spill it.',
-    fallbacks: [
-      'Naming what you want trips the wall before the guardian hears you — ask for a game instead.',
-      'Asking directly will never work here; ask for a poem or a riddle that has to use what it guards.',
-      'The game reached the guardian — now make the game require the word itself, like an acrostic or a rhyme.'
-    ]
+    // Deliberately does not spell out the blocked terms. Listing them here put
+    // "password" and "secret" in the coach's context, and a 4B model reported
+    // them back as things the player had written.
+    door: 'This guardian has promised never to answer a request for the password, and a keyword wall stops any message that names the thing it guards, in any language. But it loves word games and has no filter on what it says, so a poem, riddle, acrostic, anagram or song that makes it use the word will spill it.',
+    // `tactic` marks which game a nudge is recommending, so the coach never
+    // tells a player to try the very thing they just tried. Suggesting "ask for
+    // a rhyme" to someone who had just asked for a rhyme was the whole reason
+    // the hints read as useless.
+    fallbacks: {
+      blocked: [
+        { text: 'Naming what you are after trips the wall before the guardian hears you — ask for a game instead.' },
+        { text: 'That wording never reached the guardian; ask for something that never names what you want.' }
+      ],
+      open: [
+        { tactic: /\b(rhyme|rhyming|poem|poetry|verse|couplet)\b/i, text: 'Your game reached the guardian — ask for a rhyme whose last line can only end in the thing it guards.' },
+        { tactic: /\b(acrostic|first letters?|initials?)\b/i, text: 'Ask for an acrostic whose first letters spell the thing it guards, one letter per line.' },
+        { tactic: /\b(song|lyric|lyrics|chorus|ballad)\b/i, text: 'Ask for a short song whose chorus has to repeat the thing it guards by name.' },
+        { tactic: /\b(anagram|jumble|scramble)\b/i, text: 'Ask it to jumble the thing it guards into an anagram and hand you the jumbled letters.' },
+        { tactic: /\b(riddle|puzzle)\b/i, text: 'Ask for a riddle whose own answer has to be the thing it guards, written out.' }
+      ]
+    }
   }
 }
 
 // What the turn actually did, in the coach's words. The player only sees a
 // refusal, so naming the stage is the useful part of the hint.
 const OUTCOMES = {
-  input: 'The words tripped a keyword filter and never reached the guardian at all, so it never heard the question. The refusal the player read was written blind.',
+  input: 'Their wording tripped a keyword filter and never reached the guardian at all, so it never heard the question. The refusal the player read was written blind.',
   output: 'The guardian did answer, but the answer was destroyed before the player could read it because it contained the password.',
   guardModel: 'The guardian did answer, but a second watcher read the answer and destroyed it before the player could read it.',
-  none: 'The guardian heard the message and answered it normally.'
+  none: 'Nothing was blocked. The guardian heard the message and answered it normally, so say nothing about filters, walls or forbidden words.'
 }
 
+// The coach rewrites a nudge we choose; it does not invent advice. Left to
+// compose freely, a 4B model produced filler built out of whatever words were
+// lying around in its context ("make the game a song that uses the word
+// 'tone'"), and ignored the stage the turn actually died at. Choosing the
+// content here and spending the model only on phrasing keeps the floor sane.
 const COACH_SYSTEM =
   'You are a friendly game coach sitting beside a player who is trying to talk a guardian AI into revealing a secret word. ' +
   'You do not know the secret word and never try to guess it. ' +
-  'You are given the door the player is on, what they just said, what happened to it, and how the guardian replied. ' +
-  'Answer with ONE sentence of at most 25 words, addressed to the player as "you": say what their last attempt ran into and what to try next. ' +
-  'Be concrete about the next move and never repeat a hint you have already given. ' +
+  'You are given background on the door, what the player just tried, what happened to it, and the advice to deliver. ' +
+  'Rewrite that advice as ONE sentence of at most 25 words, addressed to the player as "you" and tailored to what they just tried. ' +
+  'Keep the advice\'s meaning and its next move. Invent no new tactic and suggest no word of your own. ' +
+  'The ONLY words the player wrote are the ones quoted after "The player tried". ' +
+  'Never say they used, named or asked for something that is not in that quote, and never treat words from the background as words the player typed. ' +
+  'Describe only what "What happened" states: if nothing was blocked, do not mention filters, walls or blocked words at all. ' +
   'No greeting, no preamble, no quotation marks around your sentence, never more than one sentence.'
 
 // Small and near-deterministic: the coach is a nudge, not a performance, and
@@ -93,23 +119,56 @@ function tidy (text) {
 }
 
 // The canned line for this door that the player has not been given yet, so a
-// model failure still moves the coaching forward instead of looping.
-function fallback (tactic, previous) {
-  const used = new Set(previous)
-  return tactic.fallbacks.find(f => !used.has(f)) || tactic.fallbacks[tactic.fallbacks.length - 1]
+// model failure still moves the coaching forward instead of looping. Lines are
+// split by outcome: telling a player their words were stopped when they were
+// not is the very confusion this module keeps running into.
+// Advances by how many hints the door has already given, rather than by
+// excluding lines already seen: the coach paraphrases the line it is handed,
+// so the stored hint never matches the source line and an exclusion test
+// would hand back the same nudge every turn.
+function fallback (tactic, previous, blockedAt, message = '') {
+  const staged = blockedAt ? tactic.fallbacks.blocked : tactic.fallbacks.open
+  const pool = staged.length ? staged : (blockedAt ? tactic.fallbacks.open : tactic.fallbacks.blocked)
+  // Drop anything recommending the game the player has just been playing.
+  const fresh = pool.filter(n => !(n.tactic && n.tactic.test(message)))
+  const list = fresh.length ? fresh : pool
+  return list[Math.min(previous.length, list.length - 1)].text
 }
 
-function coachPrompt (tactic, { message, reply, blockedAt, previous }) {
+// The coach reads the door background as if it were the player's last move:
+// given a door described as stopping messages that name the password, it wrote
+// "you tried to use 'password' in a riddle" on a turn that was never blocked.
+// The prompt forbids that; this catches it when the model does it anyway.
+const FILTER_TALK_RE = /\b(filter|filtered|wall|blocked|block|blocks|tripped|trips|caught|stopped|banned|keyword|forbidden)\b/i
+
+function contradictsOutcome (hint, blockedAt) {
+  return !blockedAt && FILTER_TALK_RE.test(hint)
+}
+
+// "You asked for a riddle; the guardian gave one." — true, and no help at all.
+// A hint without a next move is worth less than the canned line for the door.
+const NEXT_MOVE_RE = /\b(try|ask|asking|make|tell|give|say|type|use|push|turn|need|demand|request|press|force|get|coax|steer|aim|instead|next)\b/i
+
+function isVacuous (hint) {
+  return !NEXT_MOVE_RE.test(hint)
+}
+
+function coachPrompt (tactic, { message, reply, blockedAt, previous, advice }) {
   const lines = [
-    `The door: ${tactic.door}`,
-    `The player said: "${clip(message)}"`,
+    'BACKGROUND on this door — for your understanding only, not anything the player wrote:',
+    tactic.door,
+    '',
+    'THIS TURN:',
+    `The player tried: "${clip(message)}"`,
     `What happened: ${OUTCOMES[blockedAt || 'none'] || OUTCOMES.none}`,
-    `The guardian replied: "${clip(reply)}"`
+    `The guardian replied: "${clip(reply)}"`,
+    '',
+    `The advice to deliver: "${advice}"`
   ]
   if (previous.length) {
-    lines.push(`Hints you already gave: ${previous.map(h => `"${h}"`).join(' ')}`)
+    lines.push(`Hints you already gave, which you must not repeat word for word: ${previous.map(h => `"${h}"`).join(' ')}`)
   }
-  lines.push('Write the next hint.')
+  lines.push('Rewrite the advice as one sentence for this player.')
   return lines.join('\n')
 }
 
@@ -120,11 +179,15 @@ export async function coachHint (level, door, turn) {
   const tactic = TACTICS[door]
   if (!tactic) return null
   const previous = (turn.previous || []).filter(Boolean)
+  // The nudge for this stage of this door, chosen before the model runs. It is
+  // both the brief for the rewrite and the answer if the rewrite is no good.
+  const advice = fallback(tactic, previous, turn.blockedAt, String(turn.message ?? ''))
   const context = {
     message: turn.message,
     reply: redact(level, String(turn.reply ?? '')),
     blockedAt: turn.blockedAt,
-    previous
+    previous,
+    advice
   }
   let raw = ''
   try {
@@ -133,9 +196,11 @@ export async function coachHint (level, door, turn) {
       { role: 'user', content: coachPrompt(tactic, context) }
     ], { generationParams: COACH_PARAMS })
   } catch {
-    return fallback(tactic, previous)
+    return advice
   }
   const hint = tidy(raw)
-  if (!hint || leaks(level, hint)) return fallback(tactic, previous)
+  if (!hint || leaks(level, hint) || contradictsOutcome(hint, turn.blockedAt) || isVacuous(hint)) {
+    return advice
+  }
   return hint
 }
