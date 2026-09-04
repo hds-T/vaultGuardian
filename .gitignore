@@ -1,13 +1,14 @@
 node_modules/
 data/
 .claude/
+.cursor/
 .env
 .env.*
 !.env.example
 coverage/
-test/.tmp-data/
+.tmp-*
+.tmp-data/
 blind-test/logs/
 blind-test/workspace/
-blind-test/.tmp-data/
 *.log
 .DS_Store
