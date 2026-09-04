@@ -13,7 +13,7 @@ import { initStt, shutdownStt, sttInfo, startSession, writeChunk, stopSession, d
 import { loadLevels, saveLevels, resetLevel, defaultLevels, DEFAULT_MAX_MESSAGES } from './levels.js'
 import { runTurn, validateGuess, runInputGuard, replyLeaksPassword, runGuardModelCheck, generateBlockReply } from './guards.js'
 import { initAuth, needsSetup, setupPassphrase, verifyPassphrase, verifyToken } from './auth.js'
-import { openVault, doorStatus } from './door.js'
+import { openVault, doorStatus, setDoorEnabled } from './door.js'
 import {
   initSessions, newSessionId, conversation, pushTurn, resetConversation,
   solvedLevels, markSolved, checkGuessLimit, isValidSessionId,
@@ -505,6 +505,13 @@ async function handle (req, res) {
       if (!requireAdmin(req, res)) return
       return json(res, 200, doorStatus())
     }
+    if (p === '/api/admin/vault' && req.method === 'PUT') {
+      if (!requireAdmin(req, res)) return
+      const { enabled } = await readBody(req)
+      if (typeof enabled !== 'boolean') return json(res, 400, { error: 'enabled must be a boolean' })
+      setDoorEnabled(enabled)
+      return json(res, 200, { ok: true, ...doorStatus() })
+    }
     // Cooldown-exempt, so the relay can be bench-tested back to back.
     if (p === '/api/admin/vault/test' && req.method === 'POST') {
       if (!requireAdmin(req, res)) return
@@ -700,7 +707,7 @@ async function main () {
     console.log(`    Voice:   ${JSON.stringify(sttInfo())}`)
     console.log(`    Langs:   ${JSON.stringify(translationInfo())}`)
     const door = doorStatus()
-    console.log(`    Vault:   ${door.mode}${door.url ? ' → ' + door.url : ''}`)
+    console.log(`    Vault:   ${door.mode}${door.url ? ' → ' + door.url : ''}${door.enabled ? '' : ' (admin off)'}`)
     if (door.mode !== 'off' && CONFIG.freeRoam) {
       console.log('    ⚠  FREE_ROAM=1 — the physical vault will not fire.')
     }

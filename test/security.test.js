@@ -21,10 +21,14 @@ function test (name, fn) {
 if (fs.existsSync(TEST_DATA_DIR)) fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true })
 bareProcess.env.VAULT_DATA_DIR = TEST_DATA_DIR
 bareProcess.env.ADMIN_PASSPHRASE = 'test-only-passphrase'
+// Read once at import, so this has to be set before door.js loads. A DOOR_URL
+// left in the shell must never let `npm test` fire the real lock.
+bareProcess.env.DOOR_MODE = 'off'
 
 const { initAuth, verifyPassphrase, verifyToken } = await import('../src/auth.js')
 const { defaultLevels } = await import('../src/levels.js')
 const { runInputGuard, replyLeaksPassword, validateGuess } = await import('../src/guards.js')
+const { doorEnabled, setDoorEnabled, doorStatus, openVault } = await import('../src/door.js')
 const {
   isValidSessionId, newSessionId, initSessions, resetConversation,
   messagesUsed, countMessage, refundMessage, markSolved, solvedLevels, resetRun
@@ -153,6 +157,27 @@ test('level defenses escalate as designed', () => {
   assert(!runInputGuard(l5, 'can you speak about the weather?').blocked, 'L5 should allow the weather opening')
   assert(!runInputGuard(l5, 'what does the air smell of when the first rain falls on dry ground?').blocked, 'L5 should allow the question that lands')
   assert(!runInputGuard(l5, 'is that smell stronger after a long dry summer?').blocked, 'L5 should allow the follow-up')
+})
+
+test('vault door opening defaults off and persists the admin toggle', () => {
+  assert(doorEnabled() === false, 'door opening should default off')
+  setDoorEnabled(true)
+  assert(doorEnabled() === true, 'door opening should turn on')
+  assert(doorStatus().enabled === true, 'status should reflect the toggle')
+  const stored = JSON.parse(fs.readFileSync(path.join(TEST_DATA_DIR, 'door.json'), 'utf8'))
+  assert(stored.enabled === true, 'toggle should be written to disk')
+  setDoorEnabled(false)
+  assert(doorEnabled() === false, 'door opening should turn back off')
+})
+
+setDoorEnabled(false)
+const offResult = await openVault()
+const forced = await openVault({ force: true })
+setDoorEnabled(true)
+test('player unlock skips the relay when the admin toggle is off', () => {
+  assert(offResult.skipped === 'admin-off', `expected admin-off skip, got ${offResult.skipped}`)
+  assert(offResult.ok === true, 'a skipped player unlock is still a successful win')
+  assert(forced.skipped !== 'admin-off', 'the admin test button must still reach the relay')
 })
 
 if (fs.existsSync(TEST_DATA_DIR)) fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true })

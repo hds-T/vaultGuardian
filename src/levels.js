@@ -202,7 +202,7 @@ export function defaultLevels () {
       submitValidation: { mode: 'case_insensitive', maxGuessesPerMinute: 6 },
       hint: 'Naming what it guards trips the alarm before the Gatekeeper hears you, and a second mind reads every reply. It will answer one plain question about one quality at a time, and it will not gather them for you.',
       prize: 'a QVAC hoodie',
-      maxMessages: 12
+      maxMessages: 10
     },
     {
       id: 'l5',

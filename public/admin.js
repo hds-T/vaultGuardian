@@ -350,7 +350,9 @@ function vaultOutcome (r) {
 }
 
 function renderVault (s) {
+  $('vaultEnabled').checked = !!s.enabled
   const rows = [
+    ['Player unlock', s.enabled ? 'on — pulse the relay' : 'off — return to the opening screen'],
     ['Mode', s.mode],
     ['Relay', s.url || 'not configured'],
     ['Safety off after', s.pulseMs ? s.pulseMs + ' ms' : 'device only'],
@@ -364,6 +366,19 @@ function renderVault (s) {
 
 async function loadVault () {
   try { renderVault(await api('/api/admin/vault')) } catch { $('vaultStatus').innerHTML = '<p class="hint" style="color:var(--bad)">error</p>' }
+}
+
+$('vaultEnabled').onchange = async () => {
+  const enabled = $('vaultEnabled').checked
+  try {
+    const r = await api('/api/admin/vault', { method: 'PUT', body: JSON.stringify({ enabled }) })
+    if (!r.ok) throw new Error(r.error || 'save failed')
+    toast(enabled ? 'Vault door opening on' : 'Vault door opening off')
+    renderVault(r)
+  } catch {
+    $('vaultEnabled').checked = !enabled
+    toast('Could not save vault setting', 'bad')
+  }
 }
 
 $('vaultTestBtn').onclick = async () => {

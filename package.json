@@ -7,6 +7,8 @@
     "start": "bare src/server.js",
     "dev": "QVAC_MOCK=1 bare src/server.js",
     "freeroam": "FREE_ROAM=1 bare src/server.js",
+    "vault-shim": "./.wiring/tuya-shim.py",
+    "start:vault": "DOOR_URL=http://127.0.0.1:9099 bare src/server.js",
     "test": "bare test/security.test.js",
     "blind-test": "node blind-test/src/cli.js"
   },

@@ -122,7 +122,12 @@
 
           <!-- PHYSICAL VAULT -->
           <div id="tab-vault" class="tabpane hidden">
-            <p class="hint" style="margin-top:0">The relay that opens the physical vault. It pulses once when the last level is solved. Configured with <code class="k">DOOR_URL</code>, <code class="k">DOOR_MODE</code> and <code class="k">DOOR_PULSE_MS</code>.</p>
+            <p class="hint" style="margin-top:0">The relay that opens the physical vault. Configured with <code class="k">DOOR_URL</code>, <code class="k">DOOR_MODE</code> and <code class="k">DOOR_PULSE_MS</code>.</p>
+            <fieldset>
+              <legend>Open vault door</legend>
+              <div class="chk"><input type="checkbox" id="vaultEnabled"><label for="vaultEnabled" style="margin:0">Pulse the physical vault when the player presses “Open the Vault”</label></div>
+              <p class="hint">When this is off, the same button just returns the player to the opening screen. The test button below still fires the relay.</p>
+            </fieldset>
             <div id="vaultStatus"></div>
             <button id="vaultTestBtn" class="btn">Test unlock</button>
           </div>

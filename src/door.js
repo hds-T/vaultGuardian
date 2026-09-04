@@ -6,14 +6,19 @@
 // renumbered or mid-reboot must never break a win.
 import http from 'bare-http1'
 import bareProcess from 'bare-process'
+import { readJSON, writeJSON } from './store.js'
 
+const SETTINGS_FILE = 'door.json'
 const URL_BASE = (bareProcess.env.DOOR_URL || '').replace(/\/+$/, '')
 // off = never touch the network, dry-run = log the pulse without sending it.
 const MODE = bareProcess.env.DOOR_MODE || (URL_BASE ? 'live' : 'off')
 // The device's own autoexec.bat owns the pulse; this is the backstop for a
 // relay that was never scripted. 0 disables the follow-up OFF entirely.
 const PULSE_MS = Number(bareProcess.env.DOOR_PULSE_MS ?? 2000)
-const TIMEOUT_MS = 1500
+// Raise this when DOOR_URL points at the Tuya shim: a cold session handshake
+// costs more than a bare OpenBeken GET, and a timeout here logs a failure for
+// a door that actually opened.
+const TIMEOUT_MS = Number(bareProcess.env.DOOR_TIMEOUT_MS ?? 1500)
 // Progress is per browser cookie, so several booth sessions can finish at
 // once. One unlock is a prize; four in a row is a chattering relay.
 const COOLDOWN_MS = 10000
@@ -23,9 +28,24 @@ const OFF = '/cm?cmnd=POWER%20OFF'
 
 let lastFire = null
 let lastResult = null
+// Admin toggle: a win still shows the closing screen, but the relay only
+// pulses when this is on. Missing file = off, so a fresh install never
+// fires the door until someone turns it on in admin.
+let enabled = readJSON(SETTINGS_FILE, {}).enabled === true
+
+export function doorEnabled () {
+  return enabled
+}
+
+export function setDoorEnabled (on) {
+  enabled = !!on
+  writeJSON(SETTINGS_FILE, { enabled })
+  return enabled
+}
 
 export function doorStatus () {
   return {
+    enabled,
     mode: MODE,
     url: URL_BASE || null,
     pulseMs: Number.isFinite(PULSE_MS) && PULSE_MS > 0 ? PULSE_MS : 0,
@@ -34,8 +54,10 @@ export function doorStatus () {
   }
 }
 
-// Fires the unlock. `force` skips the cooldown, for the admin test button.
+// Fires the unlock. `force` skips the cooldown and the admin off-switch, for
+// the test button — so the relay can be bench-checked while the game is dark.
 export async function openVault ({ force = false } = {}) {
+  if (!force && !enabled) return finish({ ok: true, skipped: 'admin-off' }, false)
   if (MODE === 'off') return finish({ ok: false, skipped: 'disabled' }, false)
   if (!URL_BASE) return finish({ ok: false, skipped: 'no DOOR_URL' }, false)
 

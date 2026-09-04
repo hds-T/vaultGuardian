@@ -12,3 +12,4 @@ blind-test/logs/
 blind-test/workspace/
 *.log
 .DS_Store
+.wiring

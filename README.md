@@ -58,6 +58,7 @@ successful login.
 | `DOOR_URL` | — | Base URL of the relay that opens the physical vault, e.g. `http://192.168.1.50`. Unset = no physical vault. |
 | `DOOR_MODE` | `live` when `DOOR_URL` is set, else `off` | `off` \| `dry-run` (log the pulse, send nothing) \| `live` |
 | `DOOR_PULSE_MS` | `2000` | Backstop: how long after the pulse the server sends an explicit OFF. `0` disables it and trusts the relay's own timer. |
+| `DOOR_TIMEOUT_MS` | `1500` | How long to wait on the relay before giving up. Ample on a quiet LAN; raise it if the relay answers through a bridge or a congested network. |
 
 When binding `HOST` to a non-loopback address, `ADMIN_PASSPHRASE` is required
 so another device cannot claim the first-run admin setup.
@@ -366,42 +367,8 @@ line, so a regex containing a comma survives a save.
 - **Level CRUD** — edit every field, create, duplicate, reorder, enable/disable, delete, reset.
 - **Test-attack panel** — paste a candidate prompt and watch each stage's verdict (input guard → raw model output → output guard → guard-model check → the reply the player would see). The core tuning tool.
 - **Preview chat** — chat against any level as admin (bypasses the unlock gate).
-- **Vault** — status of the physical-vault relay and a test-unlock button.
+- **Vault** — toggle whether “Open the Vault” pulses the physical relay, plus relay status and a test-unlock button.
 - **Logs** — optional local-only attempt log with a clear button.
-
-## Physical vault
-
-Optionally, clearing the last level pulses a Wi-Fi relay that opens a real
-lock. Set `DOOR_URL` to the relay's address and the server fires one
-`GET /cm?cmnd=POWER%20ON` the moment the final password is accepted.
-
-The relay is an [OpenBeken](https://github.com/openshwprojects/OpenBK7231T_App)-flashed
-MHCOZY dry-contact board ([`TYWRA-RF`](https://openbekeniot.github.io/webapp/devices/Tuya_TYWRA_RF.html),
-BK7231N/CB3S). Flashing it off the stock Tuya firmware is what keeps this
-offline: the unlock is a LAN request to a device you own, not a round trip
-through a vendor cloud.
-
-Three rules make it safe to leave running:
-
-- **Relay de-energized means locked.** The coil goes on `COM`+`NO` for an
-  energize-to-open solenoid, or `COM`+`NC` for energize-to-lock. Either way the
-  game only ever says "on", and a crash, reboot or power cut leaves the vault
-  shut. Set the board's power-on state to `OFF`, not "remember last state".
-- **The relay owns the pulse.** Its `autoexec.bat` drops the coil after two
-  seconds, so the physical button and the 433 MHz fob behave like the game
-  does, and no server bug can leave a coil energized:
-  ```
-  addChangeHandler Channel0 == 1 addRepeatingEvent 2 1 setChannel 0 0
-  ```
-  (The `TYWRA-RF` template puts the relay on channel 0; most tutorials assume
-  channel 1.) `DOOR_PULSE_MS` is only a backstop for an unscripted relay.
-- **The unlock is best-effort.** It is fired without `await`, behind a 1.5 s
-  timeout and a 10 s cooldown, so an offline relay cannot delay or fail a win.
-  Failures land in the admin log, not in the player's face.
-
-`DOOR_MODE=dry-run` exercises the whole path without touching the network, and
-`FREE_ROAM=1` never fires the relay — it unlocks every level, so it would let
-anyone skip to the last one.
 
 ## Architecture
 
